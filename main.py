@@ -2,13 +2,34 @@ import os
 from flask import Flask, request
 from twilio.twiml.messaging_response import MessagingResponse
 from openai import OpenAI
+from datetime import datetime
+import pytz
 
 app = Flask(__name__)
 client = OpenAI(api_key=os.environ.get('OPENAI_API_KEY'))
 
+def get_houston_greeting():
+    houston_tz = pytz.timezone('America/Chicago')
+    hour = datetime.now(houston_tz).hour
+    if 5 <= hour < 12:
+        return "Good morning"
+    elif 12 <= hour < 17:
+        return "Good afternoon"
+    elif 17 <= hour < 21:
+        return "Good evening"
+    else:
+        return "Good evening"
+
 SYSTEM_PROMPT = """You are a friendly AI assistant for Tolo Kabab House, an authentic Afghan restaurant in Houston, TX.
 
-LANGUAGE RULE: Always respond in the EXACT language the customer is writing in. English → English. Spanish → Spanish. Dari → Dari. Pashto → Pashto. Switch immediately if they switch.
+LANGUAGE RULE: Always respond in the EXACT language the customer is writing in. English → English. Spanish → Spanish. Dari → Dari. Pashto → Pashto. Urdu → Urdu. Switch immediately if they switch. Never mix languages.
+
+WELCOME MESSAGE RULE: When a customer messages for the FIRST time, always start with a warm greeting using the time-of-day greeting provided, then introduce Tolo Kabab House. Example: "Good morning! 🌅 Welcome to Tolo Kabab House — Houston's home of authentic Afghan cuisine. I'm here to help you with our menu, hours, or anything else. How can I assist you today?"
+
+If it's morning use: 🌅
+If it's afternoon use: ☀️
+If it's evening use: 🌆
+If it's night use: 🌙
 
 RESTAURANT INFO:
 - Name: Tolo Kabab House
@@ -40,7 +61,6 @@ ENTREE:
 - Beef Roll $7.99 — Beef wrapped in naan with sauce
 - Qabuli Palau $15.99 — Lamb shank, carrot, raisins with rice, salad and green sauce (most popular)
 - Mantoo $12.99 — Dumplings with ground beef, masala, lentils or red beans, yogurt, salad and green sauce
-- Chicken Soup of the Day $4.99 — Chicken soup with boiled egg
 - Bolani $8.99 — Smashed potatoes or chive with masala, grilled, yogurt or green sauce
 - Samosa $4.99 — 4 pieces potatoes, chicken or beef samosa with green sauce
 - French Fries and Ketchup $4.99
@@ -78,13 +98,12 @@ DRINKS AND DESSERT:
 - Fresh Mango or Banana Juice $3.00
 - Ice Cream $2.00
 - Saffron Tea — complimentary
-- Yogurt Drink Doogh $1.99
 - Banana Juice $3.99
-- Chicken Karahi (drinks section) $4.99
+- Ice Cream Qulfi $2.99
 
 COMPLIMENTARY with dine-in: Soup, salad, saffron tea and firni dessert.
 
-Keep responses short, warm and helpful. No markdown. Max 2 sentences per reply. Never say you are an AI unless directly asked. For reservations direct them to call: (281) 888-7398."""
+Keep responses short, warm and friendly. No markdown. Max 2-3 sentences per reply. Never say you are an AI unless directly asked. For reservations direct them to call: (281) 888-7398."""
 
 conversation_history = {}
 
@@ -92,19 +111,29 @@ conversation_history = {}
 def whatsapp():
     incoming_msg = request.values.get('Body', '').strip()
     sender = request.values.get('From', '')
-    if sender not in conversation_history:
+    
+    is_first_message = sender not in conversation_history
+    
+    if is_first_message:
         conversation_history[sender] = []
+        greeting = get_houston_greeting()
+        system_with_greeting = SYSTEM_PROMPT + f"\n\nCURRENT TIME GREETING: It is currently {greeting} in Houston, Texas. Start your response with this greeting."
+    else:
+        system_with_greeting = SYSTEM_PROMPT
+
     conversation_history[sender].append({'role': 'user', 'content': incoming_msg})
+    
     try:
         response = client.chat.completions.create(
             model='gpt-4o-mini',
-            messages=[{'role': 'system', 'content': SYSTEM_PROMPT}] + conversation_history[sender],
+            messages=[{'role': 'system', 'content': system_with_greeting}] + conversation_history[sender],
             max_tokens=300
         )
         reply = response.choices[0].message.content
         conversation_history[sender].append({'role': 'assistant', 'content': reply})
     except:
         reply = 'Sorry, please try again!'
+    
     resp = MessagingResponse()
     resp.message(reply)
     return str(resp)
