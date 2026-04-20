@@ -1,5 +1,6 @@
 flask
 twilio
 openai
-gunicorn
 pytz
+google-auth
+google-api-python-client

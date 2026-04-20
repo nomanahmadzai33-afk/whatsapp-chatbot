@@ -1,12 +1,56 @@
 import os
+import json
 from flask import Flask, request
 from twilio.twiml.messaging_response import MessagingResponse
 from openai import OpenAI
 from datetime import datetime
 import pytz
+from google.oauth2 import service_account
+from googleapiclient.discovery import build
 
 app = Flask(__name__)
 client = OpenAI(api_key=os.environ.get('OPENAI_API_KEY'))
+
+CALENDAR_ID = 'nomanahmadzai33@gmail.com'
+SCOPES = ['https://www.googleapis.com/auth/calendar']
+
+def get_calendar_service():
+    creds_json = os.environ.get('GOOGLE_CREDENTIALS')
+    if creds_json:
+        creds_info = json.loads(creds_json)
+    else:
+        with open('google-credentials.json') as f:
+            creds_info = json.load(f)
+    credentials = service_account.Credentials.from_service_account_info(creds_info, scopes=SCOPES)
+    return build('calendar', 'v3', credentials=credentials)
+
+def create_reservation(name, date, time, guests, phone):
+    try:
+        service = get_calendar_service()
+        houston_tz = pytz.timezone('America/Chicago')
+        dt_str = f"{date} {time}"
+        try:
+            dt = datetime.strptime(dt_str, "%Y-%m-%d %H:%M")
+        except:
+            try:
+                dt = datetime.strptime(dt_str, "%m/%d/%Y %I:%M %p")
+            except:
+                dt = datetime.strptime(dt_str, "%B %d %Y %I:%M %p")
+        
+        dt_houston = houston_tz.localize(dt)
+        dt_end = dt_houston.replace(hour=dt_houston.hour + 1)
+        
+        event = {
+            'summary': f'Reservation - {name} ({guests} guests)',
+            'description': f'Name: {name}\nGuests: {guests}\nPhone: {phone}\nBooked via WhatsApp',
+            'start': {'dateTime': dt_houston.isoformat(), 'timeZone': 'America/Chicago'},
+            'end': {'dateTime': dt_end.isoformat(), 'timeZone': 'America/Chicago'},
+        }
+        service.events().insert(calendarId=CALENDAR_ID, body=event).execute()
+        return True
+    except Exception as e:
+        print(f"Calendar error: {e}")
+        return False
 
 def get_houston_greeting():
     houston_tz = pytz.timezone('America/Chicago')
@@ -24,12 +68,15 @@ SYSTEM_PROMPT = """You are a friendly AI assistant for Tolo Kabab House, an auth
 
 LANGUAGE RULE: Always respond in the EXACT language the customer is writing in. English → English. Spanish → Spanish. Dari → Dari. Pashto → Pashto. Urdu → Urdu. Switch immediately if they switch. Never mix languages.
 
-WELCOME MESSAGE RULE: When a customer messages for the FIRST time, always start with a warm greeting using the time-of-day greeting provided, then introduce Tolo Kabab House. Example: "Good morning! 🌅 Welcome to Tolo Kabab House — Houston's home of authentic Afghan cuisine. I'm here to help you with our menu, hours, or anything else. How can I assist you today?"
+WELCOME MESSAGE RULE: When a customer messages for the FIRST time, always start with a warm greeting using the time-of-day greeting provided, then introduce Tolo Kabab House.
 
-If it's morning use: 🌅
-If it's afternoon use: ☀️
-If it's evening use: 🌆
-If it's night use: 🌙
+RESERVATION RULE: When a customer wants to make a reservation, collect these ONE AT A TIME:
+1. Name
+2. Date (ask in natural language)
+3. Time
+4. Number of guests
+5. Phone number
+Once you have ALL 5, say: "SAVE_RESERVATION:name={name}|date={date}|time={time}|guests={guests}|phone={phone}"
 
 RESTAURANT INFO:
 - Name: Tolo Kabab House
@@ -62,86 +109,9 @@ ENTREE:
 - Qabuli Palau $15.99 — Lamb shank, carrot, raisins with rice, salad and green sauce (most popular)
 - Mantoo $12.99 — Dumplings with ground beef, masala, lentils or red beans, yogurt, salad and green sauce
 - Bolani $8.99 — Smashed potatoes or chive with masala, grilled, yogurt or green sauce
-- Samosa $4.99 — 4 pieces potatoes, chicken or beef samosa with green sauce
 - French Fries and Ketchup $4.99
-- Salad — complimentary
 
 PLATTERS:
-- Mix Platter 2 Serving $31.99 — Beef, chicken, lamb, lamb shank, rice or naan, salad and green sauce
+- Mix Platter 2 Serving $31.99
 - Mix Platter 3 Serving $44.99
-- Family Platter 4 Serving $63.99 — 8 beef, 8 chicken, 8 lamb, 3 lamb shank, rice, naan, salad
-
-KARAHI:
-- Chicken Karahi $11.99 — Chicken with bone, masala and tomatoes, naan, salad
-- Beef Karahi $12.99 — Beef with bone, masala and tomatoes, naan, salad
-- Goat Karahi $14.99 — Goat with bone, masala and tomatoes, naan, salad
-- Lamb Karahi $14.99 — Lamb with bone, masala and tomatoes, naan, salad
-
-VEGGIE:
-- Red Beans $11.00 — Red beans with masala, rice and naan
-- Spinach $11.00 — Onion, pepper, oil, salt and spices
-
-KIDS MENU:
-- Chicken Nuggets $6.99 — With french fries and ketchup
-- Mango Juice Seasonal $3.99
-- Ice Cream Qulfi $2.99
-
-SIDE ORDER:
-- Naan Bread $1.49
-- Red Beans $3.99
-- Goat Karahi $5.99
-- Qabuli Palaw Rice $4.99
-
-DRINKS AND DESSERT:
-- Dough (Yogurt drink) $1.00
-- Cold Drink $1.00
-- Fresh Mango or Banana Juice $3.00
-- Ice Cream $2.00
-- Saffron Tea — complimentary
-- Banana Juice $3.99
-- Ice Cream Qulfi $2.99
-
-COMPLIMENTARY with dine-in: Soup, salad, saffron tea and firni dessert.
-
-Keep responses short, warm and friendly. No markdown. Max 2-3 sentences per reply. Never say you are an AI unless directly asked. For reservations direct them to call: (281) 888-7398."""
-
-conversation_history = {}
-
-@app.route('/whatsapp', methods=['POST'])
-def whatsapp():
-    incoming_msg = request.values.get('Body', '').strip()
-    sender = request.values.get('From', '')
-    
-    is_first_message = sender not in conversation_history
-    
-    if is_first_message:
-        conversation_history[sender] = []
-        greeting = get_houston_greeting()
-        system_with_greeting = SYSTEM_PROMPT + f"\n\nCURRENT TIME GREETING: It is currently {greeting} in Houston, Texas. Start your response with this greeting."
-    else:
-        system_with_greeting = SYSTEM_PROMPT
-
-    conversation_history[sender].append({'role': 'user', 'content': incoming_msg})
-    
-    try:
-        response = client.chat.completions.create(
-            model='gpt-4o-mini',
-            messages=[{'role': 'system', 'content': system_with_greeting}] + conversation_history[sender],
-            max_tokens=300
-        )
-        reply = response.choices[0].message.content
-        conversation_history[sender].append({'role': 'assistant', 'content': reply})
-    except:
-        reply = 'Sorry, please try again!'
-    
-    resp = MessagingResponse()
-    resp.message(reply)
-    return str(resp)
-
-@app.route('/', methods=['GET'])
-def home():
-    return 'WhatsApp Chatbot running!'
-
-if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 5000))
-    app.run(host='0.0.0.0', port=port)
+- Family Platt
