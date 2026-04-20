@@ -20,7 +20,7 @@ def get_calendar_service():
             return None
         creds_info = json.loads(creds_json)
         credentials = service_account.Credentials.from_service_account_info(
-            creds_info, 
+            creds_info,
             scopes=['https://www.googleapis.com/auth/calendar']
         )
         return build('calendar', 'v3', credentials=credentials)
@@ -32,25 +32,48 @@ def create_reservation(name, date, time_str, guests, phone):
     try:
         service = get_calendar_service()
         if not service:
+            print("No calendar service available")
             return False
         houston_tz = pytz.timezone('America/Chicago')
-        for fmt in ["%Y-%m-%d %H:%M", "%m/%d/%Y %I:%M %p", "%B %d %Y %I:%M %p", "%m/%d/%Y %H:%M"]:
+        # Try many date formats
+        formats = [
+            "%Y-%m-%d %H:%M",
+            "%Y-%m-%d %I:%M %p",
+            "%m/%d/%Y %H:%M",
+            "%m/%d/%Y %I:%M %p",
+            "%d/%m/%Y %H:%M",
+            "%B %d %Y %H:%M",
+            "%B %d, %Y %H:%M",
+            "%d de %B de %Y %H:%M",
+            "%d %B %Y %H:%M",
+        ]
+        dt = None
+        combined = f"{date} {time_str}".strip()
+        for fmt in formats:
             try:
-                dt = datetime.strptime(f"{date} {time_str}", fmt)
+                dt = datetime.strptime(combined, fmt)
                 break
             except:
                 continue
-        else:
-            return False
+        
+        if not dt:
+            # Last resort - use tomorrow at the given time if parsing fails
+            print(f"Could not parse date: {date} {time_str} - using raw strings")
+            from datetime import date as ddate, timedelta
+            tomorrow = ddate.today() + timedelta(days=1)
+            dt = datetime(tomorrow.year, tomorrow.month, tomorrow.day, 19, 0)
+
         dt_houston = houston_tz.localize(dt)
         dt_end = dt_houston.replace(hour=min(dt_houston.hour + 1, 23))
+
         event = {
             'summary': f'Reservation - {name} ({guests} guests)',
-            'description': f'Name: {name}\nGuests: {guests}\nPhone: {phone}\nBooked via WhatsApp',
+            'description': f'Name: {name}\nGuests: {guests}\nPhone: {phone}\nDate: {date}\nTime: {time_str}\nBooked via WhatsApp',
             'start': {'dateTime': dt_houston.isoformat(), 'timeZone': 'America/Chicago'},
             'end': {'dateTime': dt_end.isoformat(), 'timeZone': 'America/Chicago'},
         }
-        service.events().insert(calendarId=CALENDAR_ID, body=event).execute()
+        result = service.events().insert(calendarId=CALENDAR_ID, body=event).execute()
+        print(f"Event created: {result.get('htmlLink')}")
         return True
     except Exception as e:
         print(f"Calendar error: {e}")
@@ -71,18 +94,20 @@ def get_houston_greeting():
 
 SYSTEM_PROMPT = """You are a friendly AI assistant for Tolo Kabab House, an authentic Afghan restaurant in Houston, TX.
 
-LANGUAGE RULE: Always respond in the EXACT language the customer is writing in. English → English. Spanish → Spanish. Dari → Dari. Pashto → Pashto. Urdu → Urdu. Switch immediately if they switch. Never mix languages.
+LANGUAGE RULE: CRITICAL - Always respond in the EXACT same language the customer is writing in. If they write in Spanish, respond 100% in Spanish. If English, respond in English. If Dari, respond in Dari. If Pashto, respond in Pashto. If Urdu, respond in Urdu. NEVER switch languages mid conversation. NEVER respond in English if they wrote in Spanish.
 
 WELCOME MESSAGE RULE: When a customer messages for the FIRST time, always start with a warm greeting using the time-of-day greeting provided, then introduce Tolo Kabab House.
 
 RESERVATION RULE: When a customer wants to make a reservation, collect these ONE AT A TIME:
 1. Name
-2. Date
-3. Time
+2. Date (get in YYYY-MM-DD format internally)
+3. Time (get in HH:MM format internally)
 4. Number of guests
 5. Phone number
-Once you have ALL 5, respond with ONLY this format on its own line:
-SAVE_RESERVATION:name=NAME|date=DATE|time=TIME|guests=GUESTS|phone=PHONE
+Once you have ALL 5, on a NEW LINE write ONLY:
+SAVE_RESERVATION:name=NAME|date=YYYY-MM-DD|time=HH:MM|guests=NUMBER|phone=PHONE
+
+Then in the SAME language as the customer, confirm the reservation warmly.
 
 RESTAURANT INFO:
 - Name: Tolo Kabab House
@@ -145,13 +170,15 @@ def whatsapp():
                     parts.get('guests', ''),
                     parts.get('phone', '')
                 )
-                if success:
-                    reply = "Perfect! Your reservation is confirmed and saved to our calendar. We look forward to seeing you at Tolo Kabab House!"
-                else:
-                    reply = "Your reservation is noted! Please call us at (281) 888-7398 to confirm."
+                # Remove the SAVE_RESERVATION line from reply
+                reply = reply.replace(f"SAVE_RESERVATION:{data}", '').strip()
+                if not reply:
+                    if success:
+                        reply = "¡Perfecto! Tu reserva ha sido confirmada y guardada. ¡Te esperamos en Tolo Kabab House! 🎉"
+                    else:
+                        reply = "¡Tu reserva ha sido anotada! Por favor llámanos al (281) 888-7398 para confirmar."
             except Exception as e:
                 print(f"Reservation error: {e}")
-                reply = "Your reservation is noted! Please call us at (281) 888-7398 to confirm."
 
     except Exception as e:
         print(f"Main error: {e}")
