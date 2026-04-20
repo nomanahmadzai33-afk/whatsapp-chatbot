@@ -35,7 +35,6 @@ def create_reservation(name, date, time_str, guests, phone):
             print("No calendar service available")
             return False
         houston_tz = pytz.timezone('America/Chicago')
-        # Try many date formats
         formats = [
             "%Y-%m-%d %H:%M",
             "%Y-%m-%d %I:%M %p",
@@ -44,8 +43,6 @@ def create_reservation(name, date, time_str, guests, phone):
             "%d/%m/%Y %H:%M",
             "%B %d %Y %H:%M",
             "%B %d, %Y %H:%M",
-            "%d de %B de %Y %H:%M",
-            "%d %B %Y %H:%M",
         ]
         dt = None
         combined = f"{date} {time_str}".strip()
@@ -55,10 +52,8 @@ def create_reservation(name, date, time_str, guests, phone):
                 break
             except:
                 continue
-        
+
         if not dt:
-            # Last resort - use tomorrow at the given time if parsing fails
-            print(f"Could not parse date: {date} {time_str} - using raw strings")
             from datetime import date as ddate, timedelta
             tomorrow = ddate.today() + timedelta(days=1)
             dt = datetime(tomorrow.year, tomorrow.month, tomorrow.day, 19, 0)
@@ -79,10 +74,15 @@ def create_reservation(name, date, time_str, guests, phone):
         print(f"Calendar error: {e}")
         return False
 
+def get_houston_time():
+    houston_tz = pytz.timezone('America/Chicago')
+    now = datetime.now(houston_tz)
+    return now
+
 def get_houston_greeting():
     try:
-        houston_tz = pytz.timezone('America/Chicago')
-        hour = datetime.now(houston_tz).hour
+        now = get_houston_time()
+        hour = now.hour
         if 5 <= hour < 12:
             return "Good morning"
         elif 12 <= hour < 17:
@@ -92,16 +92,29 @@ def get_houston_greeting():
     except:
         return "Hello"
 
-SYSTEM_PROMPT = """You are a friendly AI assistant for Tolo Kabab House, an authentic Afghan restaurant in Houston, TX.
+def get_system_prompt():
+    now = get_houston_time()
+    current_date = now.strftime("%A, %B %d, %Y")
+    current_time = now.strftime("%I:%M %p")
+    day_of_week = now.strftime("%A")
+    
+    return f"""You are a friendly AI assistant for Tolo Kabab House, an authentic Afghan restaurant in Houston, TX.
 
-LANGUAGE RULE: CRITICAL - Always respond in the EXACT same language the customer is writing in. If they write in Spanish, respond 100% in Spanish. If English, respond in English. If Dari, respond in Dari. If Pashto, respond in Pashto. If Urdu, respond in Urdu. NEVER switch languages mid conversation. NEVER respond in English if they wrote in Spanish.
+CURRENT DATE AND TIME (Houston, Texas):
+- Today is: {current_date}
+- Current time: {current_time}
+- Day of week: {day_of_week}
 
-WELCOME MESSAGE RULE: When a customer messages for the FIRST time, always start with a warm greeting using the time-of-day greeting provided, then introduce Tolo Kabab House.
+Use this information to understand relative dates like "tomorrow", "next Friday", "this weekend", "mañana", "el viernes", etc. Always calculate the correct date based on TODAY's date above.
+
+LANGUAGE RULE: CRITICAL - Always respond in the EXACT same language the customer is writing in. If they write in Spanish, respond 100% in Spanish. If English, respond in English. If Dari, respond in Dari. If Pashto, respond in Pashto. If Urdu, respond in Urdu. NEVER switch languages.
+
+WELCOME MESSAGE RULE: When a customer messages for the FIRST time, always start with a warm greeting, then introduce Tolo Kabab House.
 
 RESERVATION RULE: When a customer wants to make a reservation, collect these ONE AT A TIME:
 1. Name
-2. Date (get in YYYY-MM-DD format internally)
-3. Time (get in HH:MM format internally)
+2. Date - understand natural language like "tomorrow", "next Friday", "mañana", "el viernes que viene" and convert to YYYY-MM-DD
+3. Time - convert to HH:MM (24hr format)
 4. Number of guests
 5. Phone number
 Once you have ALL 5, on a NEW LINE write ONLY:
@@ -145,15 +158,15 @@ def whatsapp():
         if is_first_message:
             conversation_history[sender] = []
             greeting = get_houston_greeting()
-            system_with_greeting = SYSTEM_PROMPT + f"\n\nCURRENT GREETING: It is {greeting} in Houston TX. Start with this greeting."
+            system_prompt = get_system_prompt() + f"\n\nCURRENT GREETING: It is {greeting} in Houston TX. Start with this greeting."
         else:
-            system_with_greeting = SYSTEM_PROMPT
+            system_prompt = get_system_prompt()
 
         conversation_history[sender].append({'role': 'user', 'content': incoming_msg})
 
         response = client.chat.completions.create(
             model='gpt-4o-mini',
-            messages=[{'role': 'system', 'content': system_with_greeting}] + conversation_history[sender],
+            messages=[{'role': 'system', 'content': system_prompt}] + conversation_history[sender],
             max_tokens=300
         )
         reply = response.choices[0].message.content
@@ -170,11 +183,10 @@ def whatsapp():
                     parts.get('guests', ''),
                     parts.get('phone', '')
                 )
-                # Remove the SAVE_RESERVATION line from reply
                 reply = reply.replace(f"SAVE_RESERVATION:{data}", '').strip()
                 if not reply:
                     if success:
-                        reply = "¡Perfecto! Tu reserva ha sido confirmada y guardada. ¡Te esperamos en Tolo Kabab House! 🎉"
+                        reply = "¡Tu reserva está confirmada y guardada! ¡Te esperamos en Tolo Kabab House! 🎉"
                     else:
                         reply = "¡Tu reserva ha sido anotada! Por favor llámanos al (281) 888-7398 para confirmar."
             except Exception as e:
