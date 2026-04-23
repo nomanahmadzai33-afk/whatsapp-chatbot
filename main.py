@@ -68,8 +68,8 @@ def create_reservation(name, date, time_str, guests, phone):
         event = {
             'summary': f'Reservation - {name} ({guests} guests)',
             'description': f'Name: {name}\nGuests: {guests}\nPhone: {phone}\nDate: {date}\nTime: {time_str}\nBooked via WhatsApp',
-            'start': {'dateTime': dt_houston.isoformat(), 'timeZone': 'America/Chicago'},
-            'end': {'dateTime': dt_end.isoformat(), 'timeZone': 'America/Chicago'},
+            'start': {'dateTime': dt_houston.isoformat(), 'timeZone': 'UTC'},
+            'end': {'dateTime': dt_end.isoformat(), 'timeZone': 'UTC'},
         }
         result = service.events().insert(calendarId=CALENDAR_ID, body=event).execute()
         print(f"Event created: {result.get('htmlLink')}")
