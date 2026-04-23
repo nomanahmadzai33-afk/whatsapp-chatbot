@@ -18,7 +18,11 @@ def get_calendar_service():
         creds_json = os.environ.get('GOOGLE_CREDENTIALS')
         if not creds_json:
             return None
-        creds_info = json.loads(creds_json)
+        try:
+            import base64
+            creds_info = json.loads(base64.b64decode(creds_json).decode())
+        except Exception:
+            creds_info = json.loads(creds_json)
         credentials = service_account.Credentials.from_service_account_info(
             creds_info,
             scopes=['https://www.googleapis.com/auth/calendar']
