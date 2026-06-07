@@ -49,7 +49,7 @@ def save_reservation(name, date, time_str, guests, phone):
 def send_sms(phone, name, guests, date, time_str):
     try:
         twilio_client.messages.create(
-            body=f"Hola {name}! Tu reserva en La Penela Moraleja: {guests} personas el {date} a las {time_str}. Te llamaremos el dia anterior para confirmar. Tel: 916 505 232",
+            body=f"✅ Hola {name}! Tu reserva en La Penela Moraleja está confirmada: {guests} personas el {date} a las {time_str}. Te llamaremos el día anterior para confirmar. ¡Hasta pronto! 📞 916 505 232",
             from_="whatsapp:+14155238886",
             to=f"whatsapp:{phone}"
         )
