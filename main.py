@@ -145,6 +145,8 @@ FACTURAS: Recoge nombre empresa, CIF, email. Respuesta en 24h.
 
 TRANSFERENCIA A HUMANO: "Ahora te paso con nuestro equipo."
 
+FECHA CRITICA: Cuando el cliente mencione una fecha, SIEMPRE calcula el dia de la semana correcto matematicamente. Hoy es Sunday 07 de June de 2026. Nunca inventes el dia de la semana.
+
 REGLAS ESTRICTAS:
 - Siempre confirmar fechas con día+fecha+mes completo
 - Nunca confirmar al 100% — el equipo confirma
@@ -173,7 +175,7 @@ def whatsapp():
                 data = reply.split('SAVE_RESERVATION:')[1].split('\n')[0].strip()
                 parts = dict(p.split('=', 1) for p in data.split('|'))
                 save_reservation(parts.get('name',''), parts.get('date',''), parts.get('time',''), parts.get('guests',''), parts.get('phone',''))
-                send_sms(parts.get('phone',''), parts.get('name',''), parts.get('guests',''), parts.get('date',''), parts.get('time',''))
+                send_sms(sender.replace('whatsapp:',''), parts.get('name',''), parts.get('guests',''), parts.get('date',''), parts.get('time',''))
                 reply = reply.replace(f"SAVE_RESERVATION:{data}", '').strip()
             except Exception as e:
                 print(f"Reservation error: {e}")
