@@ -197,29 +197,28 @@ if __name__ == '__main__':
 @app.route('/confirm-reservation', methods=['POST'])
 def confirm_reservation():
     digit = request.values.get('Digits', '')
-    name = request.values.get('name', '')
     phone = request.values.get('phone', '')
     try:
         gc = get_sheets_client()
         sheet = gc.open("La Penela Reservations").sheet1
         records = sheet.get_all_records()
+        msg = "No encontramos su reserva. Llamenos al 916 505 232."
         for i, r in enumerate(records):
-            if str(r.get('Phone', '')) in phone or phone in str(r.get('Phone', '')):
+            r_phone = str(r.get('Phone', '')).replace('+', '').strip()
+            c_phone = str(phone).replace('+', '').strip()
+            if r_phone in c_phone or c_phone in r_phone:
                 row_num = i + 2
                 if digit == '1':
                     sheet.update_cell(row_num, 7, 'CONFIRMED')
-                    msg = "Gracias, su reserva ha sido confirmada. ¡Hasta mañana!"
+                    msg = "Gracias, su reserva ha sido confirmada. Hasta manana."
                 elif digit == '2':
                     sheet.update_cell(row_num, 7, 'CANCELLED')
-                    msg = "Su reserva ha sido cancelada. Si necesita ayuda, llámenos al 916 505 232."
+                    msg = "Su reserva ha sido cancelada. Si necesita ayuda llamenos al 916 505 232."
                 else:
-                    msg = "No hemos recibido su respuesta. Por favor llámenos al 916 505 232."
+                    msg = "No hemos recibido su respuesta. Por favor llamenos al 916 505 232."
                 break
-        else:
-            msg = "No encontramos su reserva. Por favor llámenos al 916 505 232."
     except Exception as e:
         print(f"Confirm error: {e}")
-        msg = "Ha ocurrido un error. Por favor llámenos al 916 505 232."
-    resp = f"""<?xml version="1.0" encoding="UTF-8"?>
-<Response><Say language="es-ES" voice="Polly.Conchita">{msg}</Say></Response>"""
+        msg = "Ha ocurrido un error. Por favor llamenos al 916 505 232."
+    resp = f'''<?xml version="1.0" encoding="UTF-8"?><Response><Say language="es-ES" voice="Polly.Conchita">{msg}</Say></Response>'''
     return resp, 200, {'Content-Type': 'text/xml'}
