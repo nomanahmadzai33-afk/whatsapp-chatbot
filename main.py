@@ -240,3 +240,13 @@ def voice_reservation():
     except Exception as e:
         print(f"Voice reservation error: {e}")
         return {'status': 'error', 'message': str(e)}, 500
+
+@app.route('/get-reservations', methods=['GET'])
+def get_reservations():
+    try:
+        gc = get_sheets_client()
+        sheet = gc.open("La Penela Reservations").sheet1
+        records = sheet.get_all_records()
+        return {'reservations': records}, 200
+    except Exception as e:
+        return {'error': str(e)}, 500
