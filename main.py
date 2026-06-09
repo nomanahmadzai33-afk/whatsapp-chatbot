@@ -222,3 +222,18 @@ def confirm_reservation():
         msg = "Ha ocurrido un error. Por favor llamenos al 916 505 232."
     resp = f'''<?xml version="1.0" encoding="UTF-8"?><Response><Say language="es-ES" voice="Polly.Conchita">{msg}</Say></Response>'''
     return resp, 200, {'Content-Type': 'text/xml'}
+
+@app.route('/voice-reservation', methods=['POST'])
+def voice_reservation():
+    try:
+        data = request.get_json()
+        name = data.get('name', '')
+        date = data.get('date', '')
+        time_str = data.get('time', '')
+        guests = data.get('guests', '')
+        phone = data.get('phone', '')
+        save_reservation(name, date, time_str, guests, phone)
+        return {'status': 'success', 'message': f'Reservation saved for {name}'}, 200
+    except Exception as e:
+        print(f"Voice reservation error: {e}")
+        return {'status': 'error', 'message': str(e)}, 500
