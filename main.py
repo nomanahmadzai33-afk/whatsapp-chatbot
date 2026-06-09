@@ -233,6 +233,7 @@ def voice_reservation():
         guests = data.get('guests', '')
         phone = data.get('phone', '')
         save_reservation(name, date, time_str, guests, phone)
+        send_sms(phone, name, guests, date, time_str)
         return {'status': 'success', 'message': f'Reservation saved for {name}'}, 200
     except Exception as e:
         print(f"Voice reservation error: {e}")
