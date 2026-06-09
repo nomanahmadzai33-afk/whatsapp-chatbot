@@ -197,7 +197,7 @@ if __name__ == '__main__':
 @app.route('/confirm-reservation', methods=['POST'])
 def confirm_reservation():
     digit = request.values.get('Digits', '')
-    phone = request.values.get('phone', '')
+    phone = request.values.get('phone', '') or request.values.get('To', '') or request.values.get('Called', '')
     try:
         gc = get_sheets_client()
         sheet = gc.open("La Penela Reservations").sheet1
