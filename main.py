@@ -209,8 +209,8 @@ def confirm_reservation():
             if r_phone in c_phone or c_phone in r_phone:
                 row_num = i + 2
                 if digit == '1':
-                    sheet.update_cell(row_num, 7, 'CONFIRMED')
-                    msg = "Gracias, su reserva ha sido confirmada. Hasta manana."
+                    sheet.update_cell(row_num, 7, 'VERIFIED')
+                    msg = "Gracias, su reserva ha sido verificada. Le esperamos manana."
                 elif digit == '2':
                     sheet.update_cell(row_num, 7, 'CANCELLED')
                     msg = "Su reserva ha sido cancelada. Si necesita ayuda llamenos al 916 505 232."
