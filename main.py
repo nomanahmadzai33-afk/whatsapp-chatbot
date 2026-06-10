@@ -1,5 +1,6 @@
 import os
 import json
+from flask_cors import CORS
 from flask import Flask, request
 from twilio.twiml.messaging_response import MessagingResponse
 from twilio.rest import Client
