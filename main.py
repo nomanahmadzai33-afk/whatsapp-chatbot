@@ -197,11 +197,11 @@ def whatsapp():
                 reply = reply.replace(f"SAVE_RESERVATION:{data}", '').strip()
             if 'SAVE_ORDER:' in reply:
                 try:
-                    data = reply.split('SAVE_ORDER:')[1].split('\n')[0].strip()
-                    parts = dict(p.split('=', 1) for p in data.split('|'))
-                    save_order(parts.get('name',''), parts.get('phone',''), parts.get('items',''), parts.get('time',''), parts.get('date',''), parts.get('total',''))
-                    send_sms(sender.replace('whatsapp:',''), parts.get('name',''), '', parts.get('date',''), parts.get('time',''))
-                    reply = reply.replace(f"SAVE_ORDER:{data}", '').strip()
+                    odata = reply.split('SAVE_ORDER:')[1].split('\n')[0].strip()
+                    oparts = dict(p.split('=', 1) for p in odata.split('|'))
+                    save_order(oparts.get('name',''), oparts.get('phone',''), oparts.get('items',''), oparts.get('time',''), oparts.get('date',''), oparts.get('total',''))
+                    send_sms(sender.replace('whatsapp:',''), oparts.get('name',''), '', oparts.get('date',''), oparts.get('time',''))
+                    reply = reply.replace('SAVE_ORDER:' + odata, '').strip()
                 except Exception as e:
                     print(f"Order error: {e}")
             except Exception as e:
