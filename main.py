@@ -236,9 +236,11 @@ def confirm_reservation():
         records = sheet.get_all_records()
         msg = "No encontramos su reserva. Llamenos al 916 505 232."
         for i, r in enumerate(records):
-            r_phone = str(r.get('Phone', '')).replace('+', '').strip()
-            c_phone = str(phone).replace('+', '').strip()
-            if r_phone in c_phone or c_phone in r_phone:
+            r_phone = ''.join(ch for ch in str(r.get('Phone', '')) if ch.isdigit())
+            c_phone = ''.join(ch for ch in str(phone) if ch.isdigit())
+            if len(r_phone) < 9 or len(c_phone) < 9:
+                continue
+            if r_phone[-9:] == c_phone[-9:]:
                 row_num = i + 2
                 if digit == '1':
                     sheet.update_cell(row_num, 7, 'VERIFIED')
