@@ -46,6 +46,23 @@ def save_reservation(name, date, time_str, guests, phone):
         print(f"Sheets save error: {e}")
         return False
 
+def save_order(name, phone, items, pickup_time, pickup_date, total):
+    try:
+        gc = get_sheets_client()
+        try:
+            sheet = gc.open("La Penela Reservations").worksheet("Pedidos")
+        except:
+            spreadsheet = gc.open("La Penela Reservations")
+            sheet = spreadsheet.add_worksheet(title="Pedidos", rows=1000, cols=10)
+            sheet.append_row(["Timestamp","Name","Phone","Items","PickupDate","PickupTime","Total","Status","Notes"])
+        now = datetime.now(madrid_tz).strftime("%Y-%m-%d %H:%M")
+        sheet.append_row([now, name, phone, items, pickup_date, pickup_time, total, "PENDING", ""])
+        print(f"Order saved: {name}")
+        return True
+    except Exception as e:
+        print(f"Order save error: {e}")
+        return False
+
 def send_sms(phone, name, guests, date, time_str):
     try:
         twilio_client.messages.create(
@@ -177,6 +194,15 @@ def whatsapp():
                 save_reservation(parts.get('name',''), parts.get('date',''), parts.get('time',''), parts.get('guests',''), parts.get('phone',''))
                 send_sms(sender.replace('whatsapp:',''), parts.get('name',''), parts.get('guests',''), parts.get('date',''), parts.get('time',''))
                 reply = reply.replace(f"SAVE_RESERVATION:{data}", '').strip()
+            if 'SAVE_ORDER:' in reply:
+                try:
+                    data = reply.split('SAVE_ORDER:')[1].split('\n')[0].strip()
+                    parts = dict(p.split('=', 1) for p in data.split('|'))
+                    save_order(parts.get('name',''), parts.get('phone',''), parts.get('items',''), parts.get('time',''), parts.get('date',''), parts.get('total',''))
+                    send_sms(sender.replace('whatsapp:',''), parts.get('name',''), '', parts.get('date',''), parts.get('time',''))
+                    reply = reply.replace(f"SAVE_ORDER:{data}", '').strip()
+                except Exception as e:
+                    print(f"Order error: {e}")
             except Exception as e:
                 print(f"Reservation error: {e}")
     except Exception as e:
@@ -266,4 +292,33 @@ def update_reservation():
         return {'status': 'success'}, 200
     except Exception as e:
         print(f"Update error: {e}")
+        return {'error': str(e)}, 500
+
+@app.route('/get-orders', methods=['GET'])
+def get_orders():
+    try:
+        gc = get_sheets_client()
+        try:
+            sheet = gc.open("La Penela Reservations").worksheet("Pedidos")
+            records = sheet.get_all_records()
+        except:
+            records = []
+        return {'orders': records}, 200
+    except Exception as e:
+        return {'error': str(e)}, 500
+
+@app.route('/update-order', methods=['POST'])
+def update_order():
+    try:
+        data = request.get_json()
+        row_num = data.get('row')
+        field = data.get('field')
+        value = data.get('value')
+        gc = get_sheets_client()
+        sheet = gc.open("La Penela Reservations").worksheet("Pedidos")
+        headers = sheet.row_values(1)
+        col = headers.index(field) + 1
+        sheet.update_cell(row_num, col, value)
+        return {'status': 'success'}, 200
+    except Exception as e:
         return {'error': str(e)}, 500
