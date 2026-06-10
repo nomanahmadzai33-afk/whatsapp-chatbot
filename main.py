@@ -57,6 +57,7 @@ def save_order(name, phone, items, pickup_time, pickup_date, total):
             spreadsheet = gc.open("La Penela Reservations")
             sheet = spreadsheet.add_worksheet(title="Pedidos", rows=1000, cols=10)
             sheet.append_row(["Timestamp","Name","Phone","Items","PickupDate","PickupTime","Total","Status","Notes"])
+        madrid_tz = pytz.timezone('Europe/Madrid')
         now = datetime.now(madrid_tz).strftime("%Y-%m-%d %H:%M")
         sheet.append_row([now, name, phone, items, pickup_date, pickup_time, total, "PENDING", ""])
         print(f"Order saved: {name}")
@@ -143,7 +144,7 @@ VINOS:
 RESERVAS — MUY IMPORTANTE:
 Recoge uno a uno: nombre, día completo con fecha (ej: domingo 8 de junio), hora, número de personas, teléfono.
 Tras los 5 datos confirma exactamente así:
-"Perfecto [nombre], reserva para [n] personas el [día y fecha completa] a las [hora]. Recibirás confirmación por mensaje ahora mismo y te llamaremos el día anterior para confirmar. ¡Hasta pronto!"
+"Perfecto [nombre], reserva para [n] personas el [día y fecha completa] a las [hora]. Recibirás confirmación por mensaje ahora mismo. Si la reserva NO es para hoy, añade: te llamaremos el día anterior para confirmar. ¡Hasta pronto!"
 
 Luego escribe SOLO en nueva línea:
 SAVE_RESERVATION:name=NOMBRE|date=FECHA|time=HORA|guests=NUMERO|phone=TELEFONO
@@ -156,7 +157,10 @@ Pide nombre, fecha original, nueva fecha. Confirma con día+fecha+mes completo.
 PEDIDOS PARA RECOGER:
 Recoge uno a uno: nombre, teléfono, fecha de recogida (día+fecha+mes completo), hora de recogida (solo 13:00-18:00 o 20:00-01:00), artículos uno a uno.
 Lee el pedido completo con total al final.
-Di: "Su pedido para el [día] [fecha] de [mes] a las [hora]. Le llamaremos el día anterior para confirmar."
+Si el pedido es para HOY: Di solo "Su pedido para hoy a las [hora]. ¡Hasta pronto!"
+Si el pedido es para otro día: Di "Su pedido para el [día] [fecha] de [mes] a las [hora]. Te llamaremos el día anterior para confirmar."
+Tras confirmar escribe SOLO en nueva línea:
+SAVE_ORDER:name=NOMBRE|phone=TELEFONO|items=ARTICULOS|date=FECHA|time=HORA|total=TOTAL
 
 UBEREATS: "Búscanos en UberEats como La Penela Moraleja."
 
