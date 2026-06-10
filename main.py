@@ -250,3 +250,20 @@ def get_reservations():
         return {'reservations': records}, 200
     except Exception as e:
         return {'error': str(e)}, 500
+
+@app.route('/update-reservation', methods=['POST'])
+def update_reservation():
+    try:
+        data = request.get_json()
+        row_num = data.get('row')
+        field = data.get('field')
+        value = data.get('value')
+        gc = get_sheets_client()
+        sheet = gc.open("La Penela Reservations").sheet1
+        headers = sheet.row_values(1)
+        col = headers.index(field) + 1
+        sheet.update_cell(row_num, col, value)
+        return {'status': 'success'}, 200
+    except Exception as e:
+        print(f"Update error: {e}")
+        return {'error': str(e)}, 500
