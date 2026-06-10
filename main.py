@@ -11,6 +11,7 @@ from google.oauth2 import service_account
 import base64
 
 app = Flask(__name__)
+CORS(app)
 client = OpenAI(api_key=os.environ.get('OPENAI_API_KEY'))
 twilio_client = Client(os.environ.get('TWILIO_ACCOUNT_SID'), os.environ.get('TWILIO_AUTH_TOKEN'))
 
