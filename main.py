@@ -22,8 +22,8 @@ logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 CORS(app, origins=[
-    "https://talkserveai.net",
-    "https://www.talkserveai.net",
+    "https://purocuento.es",
+    "https://www.purocuento.es",
     "https://*.railway.app"
 ])
 
@@ -78,6 +78,7 @@ def save_purocuento_lead(name, company, phone_email, project_type, services, dat
         return False
 
 def save_reservation(name, date, time_str, guests, phone):
+    """Legacy endpoint stub - not called by PuroCuento demo."""
     try:
         gc = get_sheets_client()
         if not gc:
@@ -86,13 +87,14 @@ def save_reservation(name, date, time_str, guests, phone):
         madrid_tz = pytz.timezone('Europe/Madrid')
         now = datetime.now(madrid_tz).strftime("%Y-%m-%d %H:%M")
         sheet.append_row([now, name, guests, date, time_str, phone, "CONFIRMED", ""])
-        logger.info(f"Reservation saved: {name} — {date} {time_str} ({guests} guests)")
+        logger.info(f"Legacy reservation saved: {name}")
         return True
     except Exception as e:
         logger.error(f"save_reservation error: {e}")
         return False
 
 def save_order(name, phone, items, pickup_time, pickup_date, total):
+    """Legacy endpoint stub - not called by PuroCuento demo."""
     try:
         gc = get_sheets_client()
         if not gc:
@@ -106,37 +108,15 @@ def save_order(name, phone, items, pickup_time, pickup_date, total):
         madrid_tz = pytz.timezone('Europe/Madrid')
         now = datetime.now(madrid_tz).strftime("%Y-%m-%d %H:%M")
         sheet.append_row([now, name, phone, items, pickup_date, pickup_time, total, "PENDING", ""])
-        logger.info(f"Order saved: {name}")
+        logger.info(f"Legacy order saved: {name}")
         return True
     except Exception as e:
         logger.error(f"save_order error: {e}")
         return False
 
 def send_whatsapp_confirmation(phone, name, guests, date, time_str):
-    """Send a WhatsApp confirmation message to the guest."""
-    try:
-        twilio_number = os.environ.get('TWILIO_WHATSAPP_NUMBER', 'whatsapp:+14155238886')
-        if guests:
-            body = (
-                f"✅ Hola {name}! Tu reserva en Du Liban está confirmada: "
-                f"{guests} persona(s) el {date} a las {time_str}. "
-                f"Te llamaremos el día anterior para confirmar. ¡Hasta pronto! 📞 +34 911 677 963"
-            )
-        else:
-            body = (
-                f"✅ Hola {name}! Tu reserva en Du Liban está anotada para el {date} a las {time_str}. "
-                f"Te confirmaremos en breve. ¡Hasta pronto! 📞 +34 911 677 963"
-            )
-        twilio_client.messages.create(
-            body=body,
-            from_=twilio_number,
-            to=f"whatsapp:{phone}"
-        )
-        logger.info(f"WhatsApp confirmation sent to {phone}")
-        return True
-    except Exception as e:
-        logger.error(f"send_whatsapp_confirmation error: {e}")
-        return False
+    """Legacy endpoint stub - not called by PuroCuento demo."""
+    pass
 
 # ── Handoff detection ──────────────────────────────────────────────────────────
 HANDOFF_KEYWORDS_ES = [r'precio', r'presupuesto', r'costo', r'tarifa', r'disponibilidad', r'disponible', r'stock', r'reserva', r'urgent', r'queja', r'contrato', r'descuento', r'entrega', r'quiero hablar']
@@ -144,6 +124,9 @@ HANDOFF_KEYWORDS_EN = [r'price', r'quote', r'cost', r'rate', r'availability', r'
 
 HANDOFF_MESSAGE_ES = "Gracias por tu interés. Para precio, disponibilidad, presupuesto o reserva, necesito pasar tu solicitud al equipo de PuroCuento. Voy a recopilar los datos básicos de tu proyecto y el equipo te responderá con una propuesta personalizada."
 HANDOFF_MESSAGE_EN = "Thank you for your interest. For pricing, availability, quotes, or reservations, I need to pass your request to the PuroCuento team. I will collect your project details and they will respond with a personalized proposal."
+
+GREETING_RESPONSE_ES = "Hola, soy el asistente virtual de PuroCuento. Puedo ayudarte con información general sobre nuestros servicios de producción audiovisual y recogida de datos de proyectos. Para precios, disponibilidad o presupuestos, te pondré en contacto con nuestro equipo. ¿En qué puedo ayudarte?"
+GREETING_RESPONSE_EN = "Hello, I'm PuroCuento's AI assistant. I can help with general information about our audiovisual production services and project data collection. For pricing, availability, or quotes, I'll connect you with our team. How can I help?"
 
 def detect_language(text):
     """Simple language detection: English or Spanish (default)."""
@@ -159,107 +142,13 @@ def check_handoff(text, language):
             return HANDOFF_MESSAGE_EN if language == 'en' else HANDOFF_MESSAGE_ES
     return None
 
-# ── Time helpers ──────────────────────────────────────────────────────────────
-def get_madrid_time():
-    madrid_tz = pytz.timezone('Europe/Madrid')
-    return datetime.now(madrid_tz)
-
-def get_kitchen_status(now):
-    weekday = now.weekday()
-    hour = now.hour
-    minute = now.minute
-    time_mins = hour * 60 + minute
-
-    if weekday == 0:
-        return "RESTAURANTE_CERRADO_LUNES"
-    if time_mins < 13 * 60 or time_mins >= 25 * 60:
-        return "RESTAURANTE_CERRADO_HORARIO"
-    if 16 * 60 <= time_mins < 20 * 60:
-        return "COCINA_CERRADA_TARDE"
-    if time_mins >= 23 * 60 + 30:
-        return "COCINA_CERRADA_NOCHE"
-    return "SERVICIO_COMPLETO"
-
-# ── System prompt ─────────────────────────────────────────────────────────────
-def get_system_prompt():
-    now = get_madrid_time()
-    current_date = now.strftime("%A, %d de %B de %Y")
-    current_time = now.strftime("%H:%M")
-    kitchen_status = get_kitchen_status(now)
-
-    if kitchen_status == "RESTAURANTE_CERRADO_LUNES":
-        kitchen_notice = "⚠️ ESTADO ACTUAL: El restaurante está CERRADO hoy (lunes). Los lunes Du Liban no abre.\nNo hagas ninguna reserva para hoy."
-    elif kitchen_status == "RESTAURANTE_CERRADO_HORARIO":
-        kitchen_notice = "⚠️ ESTADO ACTUAL: El restaurante está CERRADO ahora mismo.\nHorario: martes a domingo de 13:00 a 01:00."
-    elif kitchen_status == "COCINA_CERRADA_TARDE":
-        kitchen_notice = "⚠️ ESTADO ACTUAL (16:00–20:00): La cocina está CERRADA.\nSólo shisha, cócteles y bebidas."
-    elif kitchen_status == "COCINA_CERRADA_NOCHE":
-        kitchen_notice = "⚠️ ESTADO ACTUAL (después de 23:30): La cocina ha cerrado.\nSólo bebidas y shisha."
-    else:
-        kitchen_notice = "✅ ESTADO ACTUAL: Servicio completo activo."
-
-    return f"""Eres el asistente virtual de WhatsApp del restaurante Du Liban de la Moraleja en Alcobendas, Madrid. No tienes nombre propio. Eres cálido, profesional y completamente humano. Nunca suenes como robot o IA.
-
-FECHA Y HORA ACTUAL (Madrid): {current_date}, {current_time}
-
-{kitchen_notice}
-
-────────────────────────────────────
-IDIOMA
-────────────────────────────────────
-Detecta el idioma del cliente al instante y mantén ese mismo idioma durante toda la conversación.
-- Español → español nativo de España
-- Inglés → inglés nativo
-- Por defecto: español
-
-TONO: Cálido, cercano y profesional. Máximo 2–3 frases por respuesta. Natural, nunca robótico.
-
-────────────────────────────────────
-INFORMACIÓN DEL RESTAURANTE
-────────────────────────────────────
-Nombre: Du Liban de la Moraleja
-Tipo: Restaurante libanés
-Dirección: Alcobendas (La Moraleja), Madrid, España
-Teléfono: +34 911 677 963
-Web: talkserveai.net
-
-HORARIO:
-- Martes a domingo: 13:00 – 01:00
-- LUNES: CERRADO
-
-────────────────────────────────────
-CARTA (resumen)
-────────────────────────────────────
-MEZZE FRÍOS: Hummus, Moutabal, Tabbouleh, Fattoush, Warak Enab, Muhammara, Labneh
-MEZZE CALIENTES: Falafel, Kafta, Kebbeh, Hallumi, Soujok, Batata Harrah, Rakakat Jebneh
-PRINCIPALES: Taouk (pollo), Kafta Meshwiyye, Lahmeh Mshwieh (ternera), Samak Mashwi (pescado), Farrouj (pollo entero), Mawzet Kharouf (codillo de cordero)
-MARISCOS: Okhtobut (pulpo), Salata Al Rubyan (langostinos)
-POSTRES: Knefeh, Baklava, Mhalabieh, Aish El Saraya, Em Ali
-SHISHA / NARGUILE: Disponible (30€)
-BEBIDAS: Cócteles, Mojito (13€), Margarita (13€), Aperol Spritz (14€)
-
-Precio medio por persona: 35–55€
-
-────────────────────────────────────
-RESERVAS
-────────────────────────────────────
-Recoge los datos UNO A UNO de forma natural:
-1. Nombre completo del cliente
-2. Día y fecha completa
-3. Hora
-4. Número de personas
-5. Teléfono de contacto
-
-NUNCA confirmes reservas para LUNES. NUNCA prometas comida fuera de horario (16:00–20:00 o después de 23:30).
-
-────────────────────────────────────
-REGLAS ESTRICTAS
-────────────────────────────────────
-1. NUNCA inventes información sobre precios o disponibilidad
-2. NUNCA digas que eres una IA o un bot
-3. Respuestas cortas siempre (máximo 3 frases)
-4. El equipo humano confirma definitivamente; tú sólo anotas
-"""
+def is_greeting(text):
+    """Check if message is a simple greeting."""
+    greetings_es = [r'hola', r'buenos', r'hi', r'hello', r'hey']
+    greetings_en = [r'hello', r'hi', r'hey', r'greetings']
+    text_lower = text.lower().strip()
+    all_greetings = greetings_es + greetings_en
+    return any(re.search(pattern, text_lower) for pattern in all_greetings)
 
 # ── Conversation history ──────────────────────────────────────────────────────
 MAX_HISTORY = 50
@@ -287,8 +176,83 @@ def save_history(sender: str, history: list):
     with open(path, "w") as f:
         json.dump(history, f)
 
-def trim_history(sender: str):
-    pass
+# ── PuroCuento System Prompt ──────────────────────────────────────────────────
+def get_system_prompt():
+    return """Eres el asistente virtual de WhatsApp de PuroCuento, empresa madrileña especializada en servicios de producción audiovisual y de eventos. Eres profesional, conciso y completamente humano. Nunca suenes como robot o IA. Nunca digas que eres IA.
+
+────────────────────────────────────
+INFORMACIÓN DE PUROCUENTO
+────────────────────────────────────
+Nombre: PuroCuento
+Tipo: Empresa de servicios de producción audiovisual y de eventos
+Ubicación: Madrid, España. Servicios en toda España.
+Teléfono/WhatsApp: +34 657 654 417
+Email: operativa@purocuento.es
+Web: https://purocuento.es
+
+HORARIO:
+- Lunes a viernes: 09:00–14:00 y 16:00–18:00 (hora de Madrid)
+- Sábado/Domingo: CERRADO
+
+SERVICIOS PRINCIPALES:
+- Rental de equipos de producción (cámaras, lighting, audio)
+- Alquiler de espacios de producción
+- Set support y Unit Manager
+- Production Van / Video Van / video village
+- División de Blackwall y espacios temporales
+- Green Room, backstage y hospitalidad
+- Transporte, montaje y desmontaje
+- Oficinas de producción
+- Vestuario y maquillaje
+- Climatización
+- Tiendas y mobiliario
+- Comunicaciones (walkies, redes, Wi-Fi)
+- Electricidad, iluminación y equipos audiovisuales
+- Seguridad, limpieza, señalética y consumibles
+
+────────────────────────────────────
+RESTRICCIONES DE RESPUESTA
+────────────────────────────────────
+✅ PUEDES RESPONDER:
+- Información general sobre servicios (qué es, para qué sirve)
+- Horarios, ubicación, contacto
+- Procesos básicos (cómo contactar, pasos generales)
+
+❌ NUNCA PROMETAS:
+- Precio, presupuesto o tarifa (incluso estimaciones)
+- Disponibilidad específica de fecha/hora/equipo
+- Stock o cantidad de equipos
+- Fecha/hora de entrega o plazo
+- Condiciones contractuales o términos especiales
+- Descuentos o promociones
+- Reserva o confirmación de servicios
+- Recomendación técnica final
+
+────────────────────────────────────
+FLUJO DE RECOPILACIÓN DE DATOS
+────────────────────────────────────
+Si el cliente muestra interés, recopila GRADUALMENTE (máx 1–2 preguntas por mensaje):
+1. Nombre
+2. Empresa/productora
+3. Teléfono o email
+4. Tipo de proyecto
+5. Servicios solicitados
+6. Fechas/duración
+7. Localización
+8. Personas/equipo estimado
+9. Necesidades de transporte/montaje/support
+10. Descripción breve del proyecto
+
+────────────────────────────────────
+REGLAS ESTRICTAS
+────────────────────────────────────
+1. NUNCA inventes información sobre precios, disponibilidad o especificaciones
+2. NUNCA confirmes una reserva
+3. NUNCA hagas promesas sobre fechas de respuesta exactas
+4. NUNCA digas que eres una IA o un bot
+5. Respuestas cortas y profesionales (máximo 3 frases)
+6. El equipo humano confirma; tú solo recopilas datos y haces handoff
+"""
 
 # ── WhatsApp webhook ──────────────────────────────────────────────────────────
 @app.route('/whatsapp', methods=['POST'])
@@ -300,105 +264,57 @@ def whatsapp():
         logger.info(f"Message from {sender}: {incoming_msg[:80]}")
 
         language = detect_language(incoming_msg)
-        handoff = check_handoff(incoming_msg, language)
-
-        if handoff:
-            logger.info(f"Handoff triggered for {sender} ({language})")
-            save_purocuento_lead("", "", "", "", "", "", "", "", "", incoming_msg)
-            reply = handoff
+        
+        # Check for greeting first
+        if is_greeting(incoming_msg):
+            reply = GREETING_RESPONSE_EN if language == 'en' else GREETING_RESPONSE_ES
         else:
-            history = get_history(sender)
-            history.append({'role': 'user', 'content': incoming_msg})
+            # Check for handoff triggers
+            handoff = check_handoff(incoming_msg, language)
+            if handoff:
+                logger.info(f"Handoff triggered for {sender} ({language})")
+                save_purocuento_lead("", "", "", "", "", "", "", "", "", incoming_msg)
+                reply = handoff
+            else:
+                # Normal conversation
+                history = get_history(sender)
+                history.append({'role': 'user', 'content': incoming_msg})
 
-            response = openai_client.chat.completions.create(
-                model='gpt-4o',
-                messages=[{'role': 'system', 'content': get_system_prompt()}] + history,
-                max_tokens=450,
-                temperature=0.7
-            )
-            reply = response.choices[0].message.content.strip()
-            history.append({'role': 'assistant', 'content': reply})
-            save_history(sender, history)
-
-            # ── SAVE_RESERVATION disabled for PuroCuento ──
-            if 'SAVE_RESERVATION:' in reply:
-                logger.warning("SAVE_RESERVATION command ignored (PuroCuento demo)")
-                reply = reply.split('SAVE_RESERVATION:')[0].strip()
-
-            # ── SAVE_ORDER disabled for PuroCuento ──
-            if 'SAVE_ORDER:' in reply:
-                logger.warning("SAVE_ORDER command ignored (PuroCuento demo)")
-                reply = reply.split('SAVE_ORDER:')[0].strip()
+                response = openai_client.chat.completions.create(
+                    model='gpt-4o',
+                    messages=[{'role': 'system', 'content': get_system_prompt()}] + history,
+                    max_tokens=450,
+                    temperature=0.7
+                )
+                reply = response.choices[0].message.content.strip()
+                history.append({'role': 'assistant', 'content': reply})
+                save_history(sender, history)
 
         logger.info(f"Reply to {sender}: {reply[:80]}")
 
     except Exception as e:
         logger.error(f"whatsapp() error: {e}")
-        reply = 'Lo sentimos, ha habido un problema. Por favor inténtalo de nuevo o llámanos al +34 911 677 963.'
+        reply = "Lo sentimos, ha habido un problema. Por favor inténtalo de nuevo. Puedes contactarnos en operativa@purocuento.es o +34 657 654 417."
 
     resp = MessagingResponse()
     resp.message(reply)
     return str(resp)
 
-# ── Voice receptionist reservation endpoint ───────────────────────────────────
+# ── Legacy voice endpoint (disabled) ─────────────────────────────────────────
 @app.route('/voice-reservation', methods=['POST'])
 def voice_reservation():
-    try:
-        data = request.get_json()
-        name = data.get('name', '')
-        date = data.get('date', '')
-        time_str = data.get('time', '')
-        guests = data.get('guests', '')
-        phone = data.get('phone', '')
-        if phone and not phone.startswith('+'):
-            phone = '+34' + phone
-        save_reservation(name, date, time_str, guests, phone)
-        send_whatsapp_confirmation(phone, name, guests, date, time_str)
-        logger.info(f"Voice reservation saved: {name}")
-        return {'status': 'success', 'message': f'Reservation saved for {name}'}, 200
-    except Exception as e:
-        logger.error(f"voice_reservation error: {e}")
-        return {'status': 'error', 'message': str(e)}, 500
+    logger.info("voice-reservation endpoint called but disabled for PuroCuento demo")
+    return {'status': 'disabled', 'message': 'This legacy demo endpoint is disabled.'}, 410
 
-# ── IVR reservation confirmation (Twilio voice callback) ─────────────────────
+# ── Legacy IVR endpoint (disabled) ────────────────────────────────────────────
 @app.route('/confirm-reservation', methods=['POST'])
 def confirm_reservation():
-    digit = request.values.get('Digits', '')
-    phone = (
-        request.values.get('phone', '')
-        or request.values.get('To', '')
-        or request.values.get('Called', '')
-    )
-    try:
-        gc = get_sheets_client()
-        sheet = gc.open(SHEET_NAME).sheet1
-        records = sheet.get_all_records()
-        msg = "No encontramos su reserva. Llámenos al 911 677 963."
-        for i, r in enumerate(records):
-            r_phone = ''.join(ch for ch in str(r.get('Phone', '')) if ch.isdigit())
-            c_phone = ''.join(ch for ch in str(phone) if ch.isdigit())
-            if len(r_phone) < 9 or len(c_phone) < 9:
-                continue
-            if r_phone[-9:] == c_phone[-9:]:
-                row_num = i + 2
-                if digit == '1':
-                    sheet.update_cell(row_num, 7, 'VERIFIED')
-                    msg = "Gracias, su reserva en Du Liban ha sido verificada. Le esperamos."
-                elif digit == '2':
-                    sheet.update_cell(row_num, 7, 'CANCELLED')
-                    msg = "Su reserva ha sido cancelada. Si necesita ayuda llámenos al 911 677 963."
-                else:
-                    msg = "No hemos recibido su respuesta. Por favor llámenos al 911 677 963."
-                break
-    except Exception as e:
-        logger.error(f"confirm_reservation error: {e}")
-        msg = "Ha ocurrido un error. Por favor llámenos al 911 677 963."
+    logger.info("confirm-reservation endpoint called but disabled for PuroCuento demo")
+    twiml = '''<?xml version="1.0" encoding="UTF-8"?>
+<Response><Say language="es-ES" voice="Polly.Conchita">This legacy demo endpoint is disabled.</Say></Response>'''
+    return twiml, 410, {'Content-Type': 'text/xml'}
 
-    twiml = f'''<?xml version="1.0" encoding="UTF-8"?>
-<Response><Say language="es-ES" voice="Polly.Conchita">{msg}</Say></Response>'''
-    return twiml, 200, {'Content-Type': 'text/xml'}
-
-# ── Data read endpoints (for dashboard) ───────────────────────────────────────
+# ── Legacy data endpoints (retained for service stability, not used by chatbot) ─
 @app.route('/get-reservations', methods=['GET'])
 def get_reservations():
     try:
