@@ -143,12 +143,18 @@ def check_handoff(text, language):
     return None
 
 def is_greeting(text):
-    """Check if message is a simple greeting."""
-    greetings_es = [r'hola', r'buenos', r'hi', r'hello', r'hey']
-    greetings_en = [r'hello', r'hi', r'hey', r'greetings']
-    text_lower = text.lower().strip()
-    all_greetings = greetings_es + greetings_en
-    return any(re.search(pattern, text_lower) for pattern in all_greetings)
+    """Return True only when the entire message is a simple greeting.
+
+    Whole-message matching is intentional: substring checks made words such
+    as "which", "this", and "shipping" look like the greeting "hi".
+    """
+    normalized = re.sub(r'[^a-záéíóúüñ\s]', ' ', text.lower())
+    normalized = re.sub(r'\s+', ' ', normalized).strip()
+    greetings = {
+        'hola', 'buenos dias', 'buenos días', 'buenas tardes',
+        'buenas noches', 'hello', 'hi', 'hey', 'greetings'
+    }
+    return normalized in greetings
 
 # ── Conversation history ──────────────────────────────────────────────────────
 MAX_HISTORY = 50
@@ -209,6 +215,15 @@ SERVICIOS PRINCIPALES:
 - Comunicaciones (walkies, redes, Wi-Fi)
 - Electricidad, iluminación y equipos audiovisuales
 - Seguridad, limpieza, señalética y consumibles
+
+ALTAVOCES Y EQUIPOS DE SONIDO PUBLICADOS:
+- JBL Charge 6: 45 W RMS, hasta 24 h de batería, sin micrófono externo. Para camerinos, oficinas, green rooms y unidades pequeñas de unas 15 personas.
+- Marshall Acton III: 60 W, necesita corriente, sin micrófono externo. Para green rooms, backstage y espacios premium.
+- Tribit StormBox Blast: 90 W, hasta 30 h de batería, sin micrófono externo. Para salas medianas, carpas y grupos de hasta unas 50 personas según acústica y ruido.
+- JBL PartyBox Stage 320: 240 W, hasta 18 h de batería y conexión de micrófono. Para eventos, baile, karaoke y megafonía portátil.
+- Alto Professional TS115W: 400 W RMS, necesita corriente y admite micrófono. Para PA, voz e instalaciones estables.
+- JBL PartyBox 720: 800 W RMS, baterías intercambiables y conexión de micrófono. Para grandes espacios, exteriores y eventos.
+Si preguntan qué modelos hay, enuméralos directamente con una guía breve. Después pregunta como máximo dos cosas: tamaño/personas y si hay corriente o necesitan micrófonos. Nunca confirmes precio ni disponibilidad.
 
 ────────────────────────────────────
 RESTRICCIONES DE RESPUESTA
@@ -440,4 +455,3 @@ def update_reservation():
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=8080, debug=False)
-
