@@ -262,7 +262,24 @@ def is_qualified_lead(sender, incoming_msg):
         'equipment', 'space', 'transport', 'green room'
     )
     has_project = any(term in combined for term in project_terms)
-    return (has_email or has_phone) and has_project
+    user_turns = [item.get('content', '') for item in get_history(sender)
+                  if item.get('role') == 'user' and len(item.get('content', '').strip()) >= 10]
+    # WhatsApp already gives us a verified reply channel (the sender number).
+    # Two substantive project messages are enough to flag a serious enquiry;
+    # explicit email/phone details qualify it immediately.
+    progressed_project = has_project and len(user_turns) >= 2
+    return has_project and (has_email or has_phone or progressed_project)
+
+def reply_promises_handoff(reply):
+    """Fail-safe: an AI promise of human contact must create a real handoff."""
+    text = reply.lower()
+    promises = (
+        'equipo se pondrá en contacto', 'equipo se pondra en contacto',
+        'enviado al equipo', 'pasar tu solicitud al equipo',
+        'team will contact', 'team will get in touch', 'sent it to the',
+        'connect you with our team', 'continue with you personally'
+    )
+    return any(phrase in text for phrase in promises)
 
 def is_greeting(text):
     """Return True only when the entire message is a simple greeting.
@@ -451,6 +468,15 @@ def whatsapp():
                 reply = response.choices[0].message.content.strip()
                 history.append({'role': 'assistant', 'content': reply})
                 save_history(sender, history)
+
+                # Last-resort guarantee: if the model promises a human follow-up,
+                # create the handoff and notification in the very same request.
+                if reply_promises_handoff(reply) and get_state(sender) == AI_ACTIVE:
+                    logger.info(f"Promise fail-safe handoff triggered for {sender} ({language})")
+                    set_state(sender, WAITING_FOR_HUMAN)
+                    summary = ' | '.join(item.get('content', '') for item in history[-8:])
+                    save_purocuento_lead("", "", sender, "", "", "", "", "", "", summary)
+                    notify_owner(sender, summary)
 
         log_message(sender, 'outbound', 'ai', reply)
         logger.info(f"Reply to {sender}: {reply[:80]}")
