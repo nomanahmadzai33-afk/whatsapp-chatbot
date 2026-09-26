@@ -113,7 +113,9 @@ def notify_owner(phone, message):
     dashboard_url = request.url_root.rstrip('/') + '/dashboard'
     body = f'🔔 PuroCuento: nuevo contacto para revisión\nCliente: {phone.replace("whatsapp:", "")}\nMensaje: {message[:400]}\nAbrir: {dashboard_url}'
     try:
-        twilio_client.messages.create(from_=TWILIO_WHATSAPP_NUMBER, to=target, body=body)
+        sent = twilio_client.messages.create(from_=TWILIO_WHATSAPP_NUMBER, to=target, body=body)
+        logger.info('Owner notification accepted by Twilio: sid=%s status=%s to=%s',
+                    sent.sid, sent.status, target)
     except Exception as exc:
         logger.error('Owner notification failed: %s', exc)
 
@@ -230,6 +232,26 @@ def check_handoff(text, language):
         if re.search(pattern, text_lower):
             return HANDOFF_MESSAGE_EN if language == 'en' else HANDOFF_MESSAGE_ES
     return None
+
+def is_qualified_lead(sender, incoming_msg):
+    """Escalate when a customer has supplied contact data for a real project.
+
+    A literal handoff keyword is not required. This prevents the assistant from
+    promising that the team will contact a completed lead without notifying the
+    team or stopping the AI.
+    """
+    history_text = ' '.join(item.get('content', '') for item in get_history(sender))
+    combined = f'{history_text} {incoming_msg}'.lower()
+    has_email = bool(re.search(r'\b[^\s@]+@[^\s@]+\.[^\s@]+\b', combined))
+    has_phone = bool(re.search(r'(?<!\d)(?:\+?34[\s-]?)?[6-9](?:[\s-]?\d){8}(?!\d)', combined))
+    project_terms = (
+        'necesito', 'alquilar', 'alquiler', 'evento', 'rodaje', 'produccion',
+        'producción', 'carpa', 'altavoz', 'equipo', 'espacio', 'transporte',
+        'montaje', 'rental', 'event', 'shoot', 'production', 'speaker',
+        'equipment', 'space', 'transport', 'green room'
+    )
+    has_project = any(term in combined for term in project_terms)
+    return (has_email or has_phone) and has_project
 
 def is_greeting(text):
     """Return True only when the entire message is a simple greeting.
@@ -390,6 +412,18 @@ def whatsapp():
                 logger.info(f"Handoff triggered for {sender} ({language})")
                 save_purocuento_lead("", "", "", "", "", "", "", "", "", incoming_msg)
                 reply = handoff
+                set_state(sender, WAITING_FOR_HUMAN)
+                notify_owner(sender, incoming_msg)
+            elif is_qualified_lead(sender, incoming_msg):
+                logger.info(f"Qualified-lead handoff triggered for {sender} ({language})")
+                history = get_history(sender)
+                summary = ' | '.join(item.get('content', '') for item in history[-8:])
+                save_purocuento_lead("", "", sender, "", "", "", "", "", "", summary + ' | ' + incoming_msg)
+                reply = ("Perfecto. Ya tengo los datos principales de tu solicitud. "
+                         "La he enviado al equipo de PuroCuento para que continúe contigo personalmente."
+                         if language == 'es' else
+                         "Perfect. I now have the main details of your request. "
+                         "I've sent it to the PuroCuento team so they can continue with you personally.")
                 set_state(sender, WAITING_FOR_HUMAN)
                 notify_owner(sender, incoming_msg)
             else:
