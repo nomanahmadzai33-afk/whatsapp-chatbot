@@ -113,11 +113,22 @@ def notify_owner(phone, message):
     dashboard_url = request.url_root.rstrip('/') + '/dashboard'
     body = f'🔔 PuroCuento: nuevo contacto para revisión\nCliente: {phone.replace("whatsapp:", "")}\nMensaje: {message[:400]}\nAbrir: {dashboard_url}'
     try:
-        sent = twilio_client.messages.create(from_=TWILIO_WHATSAPP_NUMBER, to=target, body=body)
+        status_url = request.url_root.rstrip('/') + '/twilio/message-status'
+        sent = twilio_client.messages.create(from_=TWILIO_WHATSAPP_NUMBER, to=target,
+                                             body=body, status_callback=status_url)
         logger.info('Owner notification accepted by Twilio: sid=%s status=%s to=%s',
                     sent.sid, sent.status, target)
     except Exception as exc:
         logger.error('Owner notification failed: %s', exc)
+
+@app.route('/twilio/message-status', methods=['POST'])
+def twilio_message_status():
+    logger.info('Twilio delivery update: sid=%s status=%s error=%s to=%s',
+                request.values.get('MessageSid', ''),
+                request.values.get('MessageStatus', ''),
+                request.values.get('ErrorCode', ''),
+                request.values.get('To', ''))
+    return ('', 204)
 
 init_db()
 
