@@ -86,6 +86,21 @@ SEED_KNOWLEDGE = [
         ),
     },
     {
+        "id": "video-van-verified-details",
+        "title": "Video Van: capacidad, equipamiento y límites",
+        "category": "Audiovisual",
+        "source_url": "https://purocuento.es/video-van/",
+        "content": (
+            "La Video Van publicada por PuroCuento es un Video Village móvil premium para hasta ocho "
+            "personas. Integra dos monitores profesionales Sony Trimaster EL de 25 pulgadas, blackout, "
+            "climatización independiente, iluminación regulable, wifi, nevera, cafetera, conexiones y "
+            "generador propio. Admite señal por cable, antena, Teradek, QTAKE 4G/5G o streaming y puede "
+            "trabajar con múltiples señales. El técnico de video assist no está incluido y lo asigna la "
+            "productora. No se utiliza como vehículo de transporte de material o catering. Precios, "
+            "disponibilidad y configuraciones finales siempre deben validarse con Operativa."
+        ),
+    },
+    {
         "id": "temporary-spaces",
         "title": "BlackWall, EasyDrape, carpas y espacios temporales",
         "category": "Espacios temporales",
@@ -148,6 +163,34 @@ SEED_KNOWLEDGE = [
             "PuroCuento puede coordinar transporte, carga y descarga, montaje, asistencia durante el "
             "servicio y desmontaje. Para planificar se necesitan ubicación, accesos, horarios, planta o "
             "muelle de carga, restricciones del recinto, fechas y volumen aproximado."
+        ),
+    },
+    {
+        "id": "rental-process-verified",
+        "title": "Proceso verificado de alquiler y preparación",
+        "category": "Proceso",
+        "source_url": "https://purocuento.es/alquiler-de-material/",
+        "content": (
+            "PuroCuento ofrece solo alquiler con recogida y devolución en sus instalaciones, alquiler "
+            "con transporte con o sin montaje, y asesoramiento o producción integral. El material sale "
+            "revisado y probado. El soporte técnico durante el rodaje no está incluido automáticamente, "
+            "pero puede contratarse según disponibilidad. La solicitud inicial no confirma material: "
+            "Operativa revisa el pedido, emite el presupuesto definitivo, confirma disponibilidad o "
+            "propone alternativas y solo después de la aprobación confirma y reserva el proyecto."
+        ),
+    },
+    {
+        "id": "rental-categories-verified",
+        "title": "Categorías publicadas de material de producción",
+        "category": "Equipamiento",
+        "source_url": "https://purocuento.es/alquiler-de-material/",
+        "content": (
+            "Las categorías publicadas incluyen climatización; mesas, sillas y mobiliario auxiliar; "
+            "separadores, carpas, BlackWall y EasyDrape; vestuario y maquillaje; protección y seguridad; "
+            "oficina de producción y papelería; limpieza y reciclaje; FX y efectos especiales; catering "
+            "y PuroCoffee; señalización de tráfico y car care; electricidad, iluminación y equipamiento "
+            "audiovisual; y consumibles de producción. Para recomendar una solución hay que conocer uso, "
+            "aforo, espacio, fecha, localización, accesos y si se necesita transporte o montaje."
         ),
     },
     {
