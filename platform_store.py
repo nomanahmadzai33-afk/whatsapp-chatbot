@@ -42,26 +42,32 @@ class EventMirror:
         self.book_name = os.environ.get("PUROCUENTO_DATA_SHEET", "PuroCuento Support Platform")
         self._worksheet = None
         self._lock = threading.Lock()
+        self._failed = False
 
     def worksheet(self):
-        if not self.enabled:
+        if not self.enabled or self._failed:
             return None
         if self._worksheet is not None:
             return self._worksheet
-        client = self.client_factory() if self.client_factory else None
-        if not client:
+        try:
+            client = self.client_factory() if self.client_factory else None
+            if not client:
+                return None
+            try:
+                book = client.open(self.book_name)
+            except Exception:
+                book = client.create(self.book_name)
+            try:
+                sheet = book.worksheet("EventLog")
+            except Exception:
+                sheet = book.add_worksheet(title="EventLog", rows=5000, cols=5)
+                sheet.append_row(["EventID", "Timestamp", "Kind", "EntityKey", "PayloadJSON"])
+            self._worksheet = sheet
+            return sheet
+        except Exception as exc:
+            self._failed = True
+            logger.error("Persistent event mirror disabled after setup failure: %s", exc)
             return None
-        try:
-            book = client.open(self.book_name)
-        except Exception:
-            book = client.create(self.book_name)
-        try:
-            sheet = book.worksheet("EventLog")
-        except Exception:
-            sheet = book.add_worksheet(title="EventLog", rows=5000, cols=5)
-            sheet.append_row(["EventID", "Timestamp", "Kind", "EntityKey", "PayloadJSON"])
-        self._worksheet = sheet
-        return sheet
 
     def append(self, event_id, kind, key, payload):
         sheet = self.worksheet()

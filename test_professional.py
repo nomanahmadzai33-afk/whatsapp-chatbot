@@ -10,6 +10,7 @@ os.environ.setdefault('DASHBOARD_USERNAME', 'admin')
 os.environ.setdefault('DASHBOARD_PASSWORD', 'test-password')
 
 import main
+from platform_store import EventMirror
 
 
 class ProfessionalPlatformTests(unittest.TestCase):
@@ -27,6 +28,14 @@ class ProfessionalPlatformTests(unittest.TestCase):
         self.assertTrue(results)
         self.assertTrue(all(x['status'] == 'approved' for x in results))
         self.assertIn('Green Rooms', results[0]['title'])
+
+    @patch.dict(os.environ, {'ENABLE_SHEETS_PERSISTENCE': 'true'})
+    def test_broken_persistence_mirror_never_breaks_whatsapp_storage(self):
+        def broken_client():
+            raise RuntimeError('quota exceeded')
+        mirror = EventMirror(broken_client)
+        self.assertFalse(mirror.append('event-1', 'message', 'key', {'body': 'test'}))
+        self.assertFalse(mirror.append('event-2', 'message', 'key', {'body': 'test'}))
 
     def test_complex_project_creates_high_value_room(self):
         project = main.store.update_project_from_message(
