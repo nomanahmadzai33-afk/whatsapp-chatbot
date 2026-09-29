@@ -1,1 +1,6 @@
 google-credentials.json
+__pycache__/
+*.py[cod]
+*.db
+.env
+.env.*
