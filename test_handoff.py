@@ -67,7 +67,19 @@ class TakeoverTests(unittest.TestCase):
         })
         self.assertNotIn('<Message>', response.text)
         notify.assert_called_once_with(self.phone, 'También necesitamos acceso de carga',
-                                       'Nuevo mensaje en conversación derivada')
+                                       'Nuevo mensaje en conversación derivada', force=True)
+
+    def test_failed_notification_clears_deduplication_for_retry(self):
+        main.ensure_conversation(self.phone)
+        data = main.store.conversation(self.phone)
+        data['notified_at'] = main.now_iso()
+        main.store.upsert_conversation(**data)
+        main.store.save_notification('SM-notify-failed', self.phone, 'whatsapp:+34691582624', 'queued')
+        response = self.client.post('/twilio/message-status', data={
+            'MessageSid': 'SM-notify-failed', 'MessageStatus': 'undelivered', 'ErrorCode': '63016'
+        })
+        self.assertEqual(response.status_code, 204)
+        self.assertEqual(main.store.conversation(self.phone)['notified_at'], '')
 
     def test_complex_green_room_prompt_is_consultative_not_speaker_led(self):
         prompt = main.get_system_prompt()

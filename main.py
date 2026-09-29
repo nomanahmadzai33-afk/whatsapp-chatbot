@@ -269,13 +269,13 @@ def _notification_target():
     return OWNER_WHATSAPP_NUMBER if OWNER_WHATSAPP_NUMBER.startswith("whatsapp:") else f"whatsapp:{OWNER_WHATSAPP_NUMBER}"
 
 
-def notify_owner(phone, message, reason="Revisión humana requerida"):
+def notify_owner(phone, message, reason="Revisión humana requerida", force=False):
     target = _notification_target()
     if not target:
         store.audit(phone, "system", "NOTIFICATION_SKIPPED", "OWNER_WHATSAPP_NUMBER no configurado")
         return False
     conversation = store.conversation(phone) or {}
-    if conversation.get("notified_at"):
+    if conversation.get("notified_at") and not force:
         return True
     dashboard_url = request.url_root.rstrip("/") + "/dashboard"
     project = store.project(phone) or {}
@@ -333,7 +333,7 @@ def whatsapp():
         if state in {WAITING_FOR_HUMAN, HUMAN_ACTIVE, CLOSED}:
             store.audit(sender, "system", "AI_SUPPRESSED", f"Estado {state}")
             if state in {WAITING_FOR_HUMAN, HUMAN_ACTIVE}:
-                notify_owner(sender, incoming, "Nuevo mensaje en conversación derivada")
+                notify_owner(sender, incoming, "Nuevo mensaje en conversación derivada", force=True)
             return str(MessagingResponse())
 
         if is_greeting(incoming):
@@ -399,6 +399,11 @@ def twilio_message_status():
     if notification:
         n = dict(notification)
         store.save_notification(sid, n["phone"], n["recipient"], status, error)
+        if status in {"failed", "undelivered"}:
+            conversation = store.conversation(n["phone"])
+            if conversation:
+                conversation["notified_at"] = ""
+                store.upsert_conversation(**conversation)
         store.audit(n["phone"], "twilio", "NOTIFICATION_STATUS", f"{status}" + (f" · error {error}" if error else ""))
     logger.info("Twilio status: sid=%s status=%s error=%s", sid, status, error)
     return "", 204

@@ -641,9 +641,13 @@ class Store:
                        error_code=error_code or "", created_at=created_at or now_iso(),
                        updated_at=updated_at or now_iso())
         with self.connect() as conn:
-            old = conn.execute("SELECT created_at FROM notifications WHERE sid=?", (sid,)).fetchone()
+            old = conn.execute("SELECT created_at,status,error_code FROM notifications WHERE sid=?", (sid,)).fetchone()
             if old:
                 payload["created_at"] = old["created_at"]
+                terminal = {"delivered", "failed", "undelivered"}
+                if old["status"] in terminal and status not in {"delivered", "failed", "undelivered"}:
+                    payload["status"] = old["status"]
+                    payload["error_code"] = old["error_code"]
             conn.execute("""INSERT INTO notifications(sid,phone,recipient,status,error_code,created_at,updated_at)
               VALUES(:sid,:phone,:recipient,:status,:error_code,:created_at,:updated_at)
               ON CONFLICT(sid) DO UPDATE SET status=excluded.status,error_code=excluded.error_code,

@@ -37,6 +37,16 @@ class ProfessionalPlatformTests(unittest.TestCase):
         self.assertFalse(mirror.append('event-1', 'message', 'key', {'body': 'test'}))
         self.assertFalse(mirror.append('event-2', 'message', 'key', {'body': 'test'}))
 
+    def test_terminal_notification_failure_is_not_overwritten_by_late_sent_callback(self):
+        main.store.save_notification('SM-status-order', self.phone, 'whatsapp:+34691582624',
+                                     'undelivered', '63016')
+        main.store.save_notification('SM-status-order', self.phone, 'whatsapp:+34691582624', 'sent')
+        with main.db() as conn:
+            row = conn.execute('SELECT status,error_code FROM notifications WHERE sid=?',
+                               ('SM-status-order',)).fetchone()
+        self.assertEqual(row['status'], 'undelivered')
+        self.assertEqual(row['error_code'], '63016')
+
     def test_complex_project_creates_high_value_room(self):
         project = main.store.update_project_from_message(
             self.phone,
