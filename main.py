@@ -326,10 +326,14 @@ def whatsapp():
     language = detect_language(incoming)
     try:
         ensure_conversation(sender, language)
+        if get_state(sender) == AI_ACTIVE and store.should_start_new_project(sender, incoming):
+            store.start_new_project(sender, "ai", "Cambio claro de proyecto detectado en WhatsApp")
         log_message(sender, "inbound", "customer", incoming, external_id=sid or None, twilio_sid=sid, delivery_status="received")
         state = get_state(sender)
         if state in {WAITING_FOR_HUMAN, HUMAN_ACTIVE, CLOSED}:
             store.audit(sender, "system", "AI_SUPPRESSED", f"Estado {state}")
+            if state in {WAITING_FOR_HUMAN, HUMAN_ACTIVE}:
+                notify_owner(sender, incoming, "Nuevo mensaje en conversación derivada")
             return str(MessagingResponse())
 
         if is_greeting(incoming):
@@ -456,6 +460,17 @@ def dashboard_state():
     return jsonify(ok=True, state=state)
 
 
+@app.route("/dashboard/api/new-project", methods=["POST"])
+@dashboard_auth
+def dashboard_new_project():
+    data = request.get_json(silent=True) or {}
+    phone = data.get("phone", "").strip()
+    if not phone:
+        return jsonify(error="Falta el contacto"), 400
+    store.start_new_project(phone, "Equipo PuroCuento", "Nuevo proyecto creado manualmente")
+    return jsonify(ok=True, state=AI_ACTIVE)
+
+
 @app.route("/dashboard/api/send", methods=["POST"])
 @dashboard_auth
 def dashboard_send():
@@ -513,8 +528,9 @@ def dashboard_audit():
 @app.route("/healthz")
 def healthz():
     try:
-        store.summary()
-        return jsonify(status="ok", service="purocuento-support", database="ready"), 200
+        summary = store.summary()
+        return jsonify(status="ok", service="purocuento-support", database="ready",
+                       storage=summary["storage"]), 200
     except Exception:
         return jsonify(status="error", service="purocuento-support", database="unavailable"), 503
 

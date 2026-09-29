@@ -38,6 +38,46 @@ class ProfessionalPlatformTests(unittest.TestCase):
         self.assertGreaterEqual(len(project['services']), 3)
         self.assertEqual(main.store.conversation(self.phone)['priority'], 'HIGH')
 
+    @patch.object(main.openai_client.chat.completions, 'create')
+    def test_new_green_room_project_does_not_inherit_old_speaker_context(self, create):
+        main.ensure_conversation(self.phone)
+        old = main.store.update_project_from_message(
+            self.phone, 'Necesito un altavoz JBL para un evento de 50 personas'
+        )
+        main.log_message(self.phone, 'inbound', 'customer',
+                         'Necesito un altavoz JBL para un evento de 50 personas', external_id='old-1')
+        main.log_message(self.phone, 'outbound', 'ai',
+                         '¿Será interior o exterior?', external_id='old-2')
+        create.return_value = SimpleNamespace(choices=[SimpleNamespace(
+            message=SimpleNamespace(content='Entiendo que necesitáis dos zonas diferenciadas de Green Room.'))])
+
+        response = self.client.post('/whatsapp', data={
+            'From': self.phone,
+            'Body': ('Hola, estamos preparando otro montaje con dos zonas de green room diferentes: '
+                     'una para agencia y otra para seis futbolistas, con maquillaje y vestuario.'),
+            'MessageSid': 'SM-new-project',
+        })
+
+        self.assertIn('dos zonas diferenciadas', response.text)
+        current = main.store.project(self.phone)
+        self.assertNotEqual(current['project_id'], old['project_id'])
+        self.assertNotIn('Sonido / Audiovisual', current['services'])
+        sent_messages = create.call_args.kwargs['messages']
+        self.assertFalse(any('altavoz JBL' in item['content'] for item in sent_messages))
+        archived = [p for p in main.store.list_projects() if not p.get('active', True)]
+        self.assertTrue(any(p['project_id'] == old['project_id'] for p in archived))
+
+    def test_dashboard_can_start_a_new_project_manually(self):
+        main.store.update_project_from_message(self.phone, 'Evento con sonido para 80 personas')
+        old_id = main.store.project(self.phone)['project_id']
+        response = self.client.post('/dashboard/api/new-project', headers=self.auth,
+                                    json={'phone': self.phone})
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNone(main.store.project(self.phone))
+        self.assertEqual(main.store.conversation(self.phone)['active_project_id'], '')
+        archived = [p for p in main.store.list_projects() if not p.get('active', True)]
+        self.assertTrue(any(p['project_id'] == old_id for p in archived))
+
     def test_human_send_requires_explicit_takeover(self):
         main.ensure_conversation(self.phone)
         response = self.client.post('/dashboard/api/send', headers=self.auth,

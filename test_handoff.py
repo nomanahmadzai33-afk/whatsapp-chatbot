@@ -58,6 +58,17 @@ class TakeoverTests(unittest.TestCase):
         self.assertEqual(release.status_code, 200)
         self.assertEqual(main.get_state(self.phone), main.AI_ACTIVE)
 
+    @patch.object(main, 'notify_owner')
+    def test_every_new_message_while_waiting_notifies_owner(self, notify):
+        main.ensure_conversation(self.phone)
+        main.set_state(self.phone, main.WAITING_FOR_HUMAN, 'ai', 'Briefing cualificado')
+        response = self.client.post('/whatsapp', data={
+            'From': self.phone, 'Body': 'También necesitamos acceso de carga', 'MessageSid': 'SM-waiting-followup'
+        })
+        self.assertNotIn('<Message>', response.text)
+        notify.assert_called_once_with(self.phone, 'También necesitamos acceso de carga',
+                                       'Nuevo mensaje en conversación derivada')
+
     def test_complex_green_room_prompt_is_consultative_not_speaker_led(self):
         prompt = main.get_system_prompt()
         self.assertIn('MODO CONSULTOR PARA PROYECTOS COMPLEJOS', prompt)

@@ -173,18 +173,34 @@ class Store:
               CREATE TABLE IF NOT EXISTS restored_events (
                 event_id TEXT PRIMARY KEY, restored_at TEXT NOT NULL
               );
+              CREATE TABLE IF NOT EXISTS archived_projects (
+                project_id TEXT PRIMARY KEY,
+                phone TEXT NOT NULL,
+                payload_json TEXT NOT NULL,
+                archived_at TEXT NOT NULL
+              );
             """)
             # Safe upgrades from the earlier demo schema.
             for definition in (
                 "assigned_to TEXT DEFAULT ''", "priority TEXT DEFAULT 'NORMAL'",
                 "unread INTEGER DEFAULT 0", "handoff_reason TEXT DEFAULT ''",
-                "notified_at TEXT DEFAULT ''",
+                "notified_at TEXT DEFAULT ''", "active_project_id TEXT DEFAULT ''",
             ):
                 self._add_column(conn, "conversations", definition)
             for definition in (
                 "external_id TEXT", "twilio_sid TEXT DEFAULT ''", "delivery_status TEXT DEFAULT ''",
+                "project_id TEXT DEFAULT ''",
             ):
                 self._add_column(conn, "messages", definition)
+            self._add_column(conn, "projects", "project_id TEXT DEFAULT ''")
+            for row in conn.execute("SELECT phone,project_id FROM projects").fetchall():
+                project_id = row["project_id"] or str(uuid.uuid4())
+                if not row["project_id"]:
+                    conn.execute("UPDATE projects SET project_id=? WHERE phone=?", (project_id, row["phone"]))
+                conn.execute("UPDATE conversations SET active_project_id=? WHERE phone=? AND (active_project_id='' OR active_project_id IS NULL)",
+                             (project_id, row["phone"]))
+                conn.execute("UPDATE messages SET project_id=? WHERE phone=? AND (project_id='' OR project_id IS NULL)",
+                             (project_id, row["phone"]))
             conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_external_id ON messages(external_id)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_messages_phone_id ON messages(phone,id)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_events(created_at DESC)")
@@ -237,18 +253,20 @@ class Store:
 
     def upsert_conversation(self, phone, state="AI_ACTIVE", language="es", assigned_to="",
                             priority="NORMAL", unread=0, handoff_reason="", notified_at="",
-                            updated_at=None, mirror=True):
+                            active_project_id="", updated_at=None, mirror=True):
         updated_at = updated_at or now_iso()
         payload = dict(phone=phone, state=state, language=language, assigned_to=assigned_to,
                        priority=priority, unread=unread, handoff_reason=handoff_reason,
-                       notified_at=notified_at, updated_at=updated_at)
+                       notified_at=notified_at, active_project_id=active_project_id or "",
+                       updated_at=updated_at)
         with self.connect() as conn:
             conn.execute("""INSERT INTO conversations(phone,state,language,assigned_to,priority,unread,
-              handoff_reason,notified_at,updated_at) VALUES(:phone,:state,:language,:assigned_to,:priority,
-              :unread,:handoff_reason,:notified_at,:updated_at)
+              handoff_reason,notified_at,active_project_id,updated_at) VALUES(:phone,:state,:language,:assigned_to,:priority,
+              :unread,:handoff_reason,:notified_at,:active_project_id,:updated_at)
               ON CONFLICT(phone) DO UPDATE SET state=excluded.state,language=excluded.language,
               assigned_to=excluded.assigned_to,priority=excluded.priority,unread=excluded.unread,
               handoff_reason=excluded.handoff_reason,notified_at=excluded.notified_at,
+              active_project_id=excluded.active_project_id,
               updated_at=excluded.updated_at""", payload)
         if mirror:
             self._event("conversation", phone, payload)
@@ -295,15 +313,18 @@ class Store:
         self.upsert_conversation(**data)
 
     def add_message(self, phone, direction, sender, body, external_id=None, twilio_sid="",
-                    delivery_status="", created_at=None, mirror=True):
+                    delivery_status="", project_id=None, created_at=None, mirror=True):
         self.ensure_conversation(phone)
+        conversation = self.conversation(phone) or {}
         payload = dict(phone=phone, direction=direction, sender=sender, body=body,
                        external_id=external_id or str(uuid.uuid4()), twilio_sid=twilio_sid or "",
-                       delivery_status=delivery_status or "", created_at=created_at or now_iso())
+                       delivery_status=delivery_status or "",
+                       project_id=project_id if project_id is not None else conversation.get("active_project_id", ""),
+                       created_at=created_at or now_iso())
         with self.connect() as conn:
             conn.execute("""INSERT OR IGNORE INTO messages(external_id,phone,direction,sender,body,twilio_sid,
-              delivery_status,created_at) VALUES(:external_id,:phone,:direction,:sender,:body,:twilio_sid,
-              :delivery_status,:created_at)""", payload)
+              delivery_status,project_id,created_at) VALUES(:external_id,:phone,:direction,:sender,:body,:twilio_sid,
+              :delivery_status,:project_id,:created_at)""", payload)
             conv = dict(conn.execute("SELECT * FROM conversations WHERE phone=?", (phone,)).fetchone())
         conv["updated_at"] = payload["created_at"]
         if direction == "inbound":
@@ -314,9 +335,16 @@ class Store:
         return payload["external_id"]
 
     def history(self, phone, limit=30):
+        conversation = self.conversation(phone) or {}
+        project_id = conversation.get("active_project_id", "")
         with self.connect() as conn:
-            rows = conn.execute("""SELECT sender,body FROM messages WHERE phone=? AND sender IN ('customer','ai')
-              ORDER BY id DESC LIMIT ?""", (phone, limit)).fetchall()
+            if project_id:
+                rows = conn.execute("""SELECT sender,body FROM messages WHERE phone=? AND project_id=?
+                  AND sender IN ('customer','ai') ORDER BY id DESC LIMIT ?""",
+                                    (phone, project_id, limit)).fetchall()
+            else:
+                rows = conn.execute("""SELECT sender,body FROM messages WHERE phone=? AND sender IN ('customer','ai')
+                  ORDER BY id DESC LIMIT ?""", (phone, limit)).fetchall()
         rows = list(reversed(rows))
         return [{"role": "user" if r["sender"] == "customer" else "assistant", "content": r["body"]} for r in rows]
 
@@ -363,22 +391,28 @@ class Store:
                        location=p["location"], people=p["people"], logistics=p["logistics"],
                        description=p["description"], missing=p.get("missing", []),
                        high_value=int(bool(p["high_value"])), risk_reasons=p.get("risk_reasons", []),
-                       status=p["status"], updated_at=p.get("updated_at") or now_iso())
+                       status=p["status"], project_id=p.get("project_id") or str(uuid.uuid4()),
+                       updated_at=p.get("updated_at") or now_iso())
         dbp = dict(payload)
         dbp["services_json"] = json.dumps(payload["services"], ensure_ascii=False)
         dbp["missing_json"] = json.dumps(payload["missing"], ensure_ascii=False)
         dbp["risk_reasons_json"] = json.dumps(payload["risk_reasons"], ensure_ascii=False)
         with self.connect() as conn:
             conn.execute("""INSERT INTO projects(phone,name,company,contact,project_type,services_json,dates,
-              location,people,logistics,description,missing_json,high_value,risk_reasons_json,status,updated_at)
+              location,people,logistics,description,missing_json,high_value,risk_reasons_json,status,project_id,updated_at)
               VALUES(:phone,:name,:company,:contact,:project_type,:services_json,:dates,:location,:people,
-              :logistics,:description,:missing_json,:high_value,:risk_reasons_json,:status,:updated_at)
+              :logistics,:description,:missing_json,:high_value,:risk_reasons_json,:status,:project_id,:updated_at)
               ON CONFLICT(phone) DO UPDATE SET name=excluded.name,company=excluded.company,
               contact=excluded.contact,project_type=excluded.project_type,services_json=excluded.services_json,
               dates=excluded.dates,location=excluded.location,people=excluded.people,
               logistics=excluded.logistics,description=excluded.description,missing_json=excluded.missing_json,
               high_value=excluded.high_value,risk_reasons_json=excluded.risk_reasons_json,
-              status=excluded.status,updated_at=excluded.updated_at""", dbp)
+              status=excluded.status,project_id=excluded.project_id,updated_at=excluded.updated_at""", dbp)
+            conn.execute("UPDATE conversations SET active_project_id=? WHERE phone=?",
+                         (payload["project_id"], payload["phone"]))
+            conn.execute("""UPDATE messages SET project_id=? WHERE phone=?
+              AND (project_id='' OR project_id IS NULL)""",
+                         (payload["project_id"], payload["phone"]))
         if mirror:
             self._event("project", payload["phone"], payload)
         return payload
@@ -397,7 +431,72 @@ class Store:
     def list_projects(self):
         with self.connect() as conn:
             phones = [r[0] for r in conn.execute("SELECT phone FROM projects ORDER BY high_value DESC,updated_at DESC")]
-        return [self.project(phone) for phone in phones]
+            archived = [dict(r) for r in conn.execute(
+                "SELECT payload_json,archived_at FROM archived_projects ORDER BY archived_at DESC"
+            ).fetchall()]
+        active = [self.project(phone) for phone in phones]
+        historical = []
+        for row in archived:
+            item = _json(row["payload_json"], {})
+            item["archived_at"] = row["archived_at"]
+            item["active"] = False
+            historical.append(item)
+        for item in active:
+            item["active"] = True
+        return active + historical
+
+    def start_new_project(self, phone, actor="system", reason="Nueva consulta detectada"):
+        """Archive the current project and start an isolated project context."""
+        self.ensure_conversation(phone)
+        current = self.project(phone)
+        if current:
+            archived = dict(current)
+            archived["status"] = "ARCHIVED"
+            with self.connect() as conn:
+                conn.execute("""INSERT OR REPLACE INTO archived_projects(project_id,phone,payload_json,archived_at)
+                  VALUES(?,?,?,?)""", (current["project_id"], phone,
+                                        json.dumps(archived, ensure_ascii=False), now_iso()))
+                conn.execute("DELETE FROM projects WHERE phone=?", (phone,))
+        conversation = self.conversation(phone)
+        conversation.update(state="AI_ACTIVE", assigned_to="", priority="NORMAL", unread=0,
+                            handoff_reason="", notified_at="", active_project_id="", updated_at=now_iso())
+        self.upsert_conversation(**conversation)
+        self.audit(phone, actor, "NEW_PROJECT_STARTED", reason)
+        return True
+
+    @staticmethod
+    def infer_services(text):
+        norm = Store._normalize(text)
+        service_map = {
+            "Green Room / Camerinos": ["green room", "camerino", "vestuario", "maquillaje"],
+            "Video village / Video Van": ["video village", "video van", "production van", "monitor"],
+            "Mobiliario y decoración": ["mobiliario", "sofa", "silla", "mesa", "decoracion"],
+            "Espacios temporales": ["carpa", "blackwall", "pipe", "drape", "espacio temporal"],
+            "Climatización / Energía": ["climatizacion", "ventilacion", "electricidad", "energia", "carga"],
+            "Transporte / Montaje": ["transporte", "montaje", "desmontaje", "carga y descarga"],
+            "Hospitality / VIP": ["hospitality", "vip", "craft", "talento", "futbolista"],
+            "Sonido / Audiovisual": ["altavoz", "sonido", "audio", "microfono", "jbl", "speaker"],
+            "Set Support": ["set support", "unit manager", "soporte en set"],
+            "Oficina de producción": ["oficina", "check-in", "coordinacion"],
+        }
+        return {label for label, tokens in service_map.items() if any(token in norm for token in tokens)}
+
+    def should_start_new_project(self, phone, text):
+        current = self.project(phone)
+        if not current:
+            return False
+        norm = self._normalize(text).strip()
+        explicit = (
+            r"\b(?:nuevo|otro) proyecto\b", r"\bnueva consulta\b", r"\bempezar de (?:nuevo|cero)\b",
+            r"\bnew project\b", r"\banother project\b", r"\bstart over\b",
+        )
+        if any(re.search(pattern, norm) for pattern in explicit):
+            return True
+        new_services = self.infer_services(text)
+        old_services = set(current.get("services", []))
+        greeting = re.match(r"^(?:hola|buenos dias|buenas tardes|hello|hi|hey)\b", norm)
+        substantial = len(norm) >= 70
+        return bool(greeting and substantial and new_services and old_services and new_services.isdisjoint(old_services))
 
     def update_project_from_message(self, phone, text):
         p = self.project(phone) or {"phone": phone}
@@ -422,22 +521,8 @@ class Store:
                 p["project_type"] = label
                 break
 
-        service_map = {
-            "Green Room / Camerinos": ["green room", "camerino", "vestuario", "maquillaje"],
-            "Video village / Video Van": ["video village", "video van", "production van", "monitor"],
-            "Mobiliario y decoración": ["mobiliario", "sofa", "silla", "mesa", "decoracion"],
-            "Espacios temporales": ["carpa", "blackwall", "pipe", "drape", "espacio temporal"],
-            "Climatización / Energía": ["climatizacion", "ventilacion", "electricidad", "energia", "carga"],
-            "Transporte / Montaje": ["transporte", "montaje", "desmontaje", "carga y descarga"],
-            "Hospitality / VIP": ["hospitality", "vip", "craft", "talento", "futbolista"],
-            "Sonido / Audiovisual": ["altavoz", "sonido", "audio", "microfono", "jbl"],
-            "Set Support": ["set support", "unit manager", "soporte en set"],
-            "Oficina de producción": ["oficina", "check-in", "coordinacion"],
-        }
         services = set(p.get("services", []))
-        for label, tokens in service_map.items():
-            if any(token in norm for token in tokens):
-                services.add(label)
+        services.update(self.infer_services(combined))
         p["services"] = sorted(services)
 
         people = [int(m.group(1)) for m in re.finditer(r"\b(\d{1,4})\s*(?:personas|pax|futbolistas|talentos|people|guests?)\b", norm)]
@@ -569,6 +654,7 @@ class Store:
             high = conn.execute("SELECT COUNT(*) FROM projects WHERE high_value=1").fetchone()[0]
             approved = conn.execute("SELECT COUNT(*) FROM knowledge WHERE status='approved'").fetchone()[0]
             failed = conn.execute("SELECT COUNT(*) FROM notifications WHERE status IN ('failed','undelivered')").fetchone()[0]
+        storage = "persistent-volume" if not os.path.abspath(self.path).startswith("/tmp/") else "temporary"
         return {"conversations": total, "waiting": waiting, "human_active": human,
                 "high_value": high, "approved_knowledge": approved, "notification_failures": failed,
-                "persistent_mirror": self.mirror.enabled}
+                "persistent_mirror": self.mirror.enabled, "storage": storage}
